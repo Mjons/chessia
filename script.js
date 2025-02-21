@@ -57,6 +57,33 @@ const cardDeck = [
           }
         });
       });
+  
+      // Initialize the help section
+      const helpButton = document.createElement('button');
+      helpButton.id = 'toggle-help';
+      helpButton.className = 'help-button';
+      helpButton.textContent = 'Show Card Effects';
+      helpButton.onclick = () => this.toggleCardHelp();
+      
+      const helpSection = document.createElement('div');
+      helpSection.id = 'card-help';
+      helpSection.className = 'hidden';
+      helpSection.innerHTML = `
+          <h3>Card Effects</h3>
+          <ul>
+              <li><strong>Teleportation:</strong> Move any of your pieces to any empty square on the board. Ends your turn.</li>
+              <li><strong>Shield:</strong> Protect one of your pieces from capture until your next turn begins. Does NOT end your turn.</li>
+              <li><strong>Knight's Leap:</strong> Move any piece as if it were a knight (L-shape). Can capture pieces. Ends your turn.</li>
+              <li><strong>Swap Sacrifice:</strong> Swap the positions of any two of your pieces. Ends your turn.</li>
+          </ul>
+      `;
+      
+      const helpContainer = document.createElement('div');
+      helpContainer.id = 'card-help-container';
+      helpContainer.appendChild(helpButton);
+      helpContainer.appendChild(helpSection);
+      
+      document.querySelector('.container').appendChild(helpContainer);
     },
   
     onDragStart(source, piece) {
@@ -612,6 +639,17 @@ const cardDeck = [
         this.lockBoard();
         
         this.showMessage(`${nextPlayer}'s turn.`);
+    },
+  
+    toggleCardHelp() {
+        const helpSection = document.getElementById('card-help');
+        if (helpSection.classList.contains('hidden')) {
+            helpSection.classList.remove('hidden');
+            document.getElementById('toggle-help').textContent = 'Hide Card Effects';
+        } else {
+            helpSection.classList.add('hidden');
+            document.getElementById('toggle-help').textContent = 'Show Card Effects';
+        }
     }
   };
   
