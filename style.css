@@ -195,3 +195,13 @@ body {
     70% { box-shadow: 0 0 10px 10px rgba(0, 0, 255, 0); }
     100% { box-shadow: 0 0 0 0 rgba(0, 0, 255, 0); }
   }
+
+  .newly-drawn {
+    background-color: #c17900 !important;
+    opacity: 0.7;
+  }
+  
+  .newly-drawn:hover {
+    background-color: #c17900 !important;
+    cursor: not-allowed;
+  }
