@@ -875,6 +875,9 @@ const cardDeck = [
       const nextPlayer = player === 'white' ? 'black' : 'white';
       this.chess.load(this.chess.fen().replace(/ w | b /, ` ${nextPlayer === 'white' ? 'w' : 'b'} `));
       
+      // Clear newly drawn cards for the next player
+      this.clearNewlyDrawnCards(nextPlayer);
+      
       this.board.position(this.chess.fen());
       this.updateStatus();
       this.showMessage(`${player} skipped their turn and drew a card. ${nextPlayer}'s turn.`);
@@ -892,6 +895,37 @@ const cardDeck = [
     // Add function to clear newly drawn cards at the start of a player's turn
     clearNewlyDrawnCards(player) {
         this.newlyDrawnCards[player].clear();
+    },
+  
+    // Update endCurrentTurn to clear newly drawn cards for the next player
+    endCurrentTurn() {
+        const currentPlayer = this.cardPlayer;
+        const nextPlayer = currentPlayer === 'white' ? 'black' : 'white';
+        
+        // Switch the turn in the chess engine
+        this.chess.load(this.chess.fen().replace(/ w | b /, ` ${nextPlayer === 'white' ? 'w' : 'b'} `));
+        
+        // Clear newly drawn cards for the next player
+        this.clearNewlyDrawnCards(nextPlayer);
+        
+        // Update the board
+        this.board.position(this.chess.fen());
+        
+        // Clean up the card use
+        playerHand[currentPlayer].splice(this.pendingCard.cardIndex, 1);
+        this.updateCardDisplay();
+        this.cardPlayedThisTurn = true;
+        this.resetCardMode();
+        
+        // Clear any highlights
+        const squares = document.querySelectorAll('.square-55d63');
+        squares.forEach(sq => sq.classList.remove('highlight'));
+        
+        // Update game state
+        this.updateStatus();
+        this.lockBoard();
+        
+        this.showMessage(`${nextPlayer}'s turn.`);
     }
   };
   
