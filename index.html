@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chess Card Game</title>
+  <!-- jQuery (required by Chessboard.js) -->
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <!-- Chessboard.js stylesheet -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css" />
+  <!-- Chess.js for game logic -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.2/chess.min.js"></script>
+  <!-- Chessboard.js for the interactive board -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>
+  <link rel="stylesheet" href="style.css">
+  <script src="script.js" defer></script>
+</head>
+<body>
+  <div class="container">
+    <div id="board" style="width: 400px"></div>
+    <p id="status">Game status will appear here</p>
+    <div id="message-log">
+      <p>Welcome to Chess Card Game! Play cards or move pieces to begin.</p>
+    </div>
+    <div id="player-info">
+      <div id="white-player">
+        <p id="white-tokens">White: 3 tokens</p>
+        <div id="white-hand"></div>
+      </div>
+      <div id="black-player">
+        <p id="black-tokens">Black: 3 tokens</p>
+        <div id="black-hand"></div>
+      </div>
+    </div>
+    <!-- Added cancel button, hidden by default -->
+    <div id="cancel-card-action" style="display: none;">
+      <button onclick="game.cancelCardAction()">Cancel Card Action</button>
+    </div>
+  </div>
+  <!-- Updated audio file extensions to .ogg -->
+  <audio id="move-sound" src="move.ogg"></audio>
+  <audio id="capture-sound" src="capture.ogg"></audio>
+</body>
+</html>

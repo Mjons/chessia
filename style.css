@@ -1,0 +1,197 @@
+body {
+    background-color: #8B4513; /* Saddle brown for a wood-like background */
+    color: #fff;
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+  }
+  
+  .container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+  }
+  
+  #board {
+    box-shadow: 0 0 10px rgba(0,0,0,0.5); /* Subtle shadow for depth */
+    border: 5px solid #654321; /* Darker brown border */
+  }
+  
+  #player-info {
+    display: flex;
+    justify-content: space-between;
+    width: 400px;
+    margin-top: 20px;
+  }
+  
+  #white-player, #black-player {
+    background-color: rgba(255,255,255,0.1); /* Semi-transparent white */
+    padding: 10px;
+    border-radius: 5px;
+    width: 45%;
+    text-align: center;
+  }
+  
+  #white-hand, #black-hand {
+    margin-top: 10px;
+  }
+  
+  #white-hand button, #black-hand button {
+    background-color: #ffd700; /* Gold for card buttons */
+    border: none;
+    padding: 5px 10px;
+    margin: 5px;
+    font-size: 0.9em;
+    cursor: pointer;
+    border-radius: 5px;
+  }
+  
+  #white-hand button:hover, #black-hand button:hover {
+    background-color: #e6c200;
+  }
+  
+  #status {
+    font-size: 1.2em;
+    margin: 10px 0;
+  }
+  
+  #message-log {
+    background-color: rgba(0,0,0,0.3);
+    border-radius: 5px;
+    width: 400px;
+    max-height: 100px;
+    overflow-y: auto;
+    margin: 10px 0;
+    padding: 10px;
+  }
+  
+  #message-log p {
+    margin: 5px 0;
+    font-size: 0.9em;
+  }
+  
+  #card-action-area {
+    width: 400px;
+    margin: 10px 0;
+  }
+  
+  #active-card-controls {
+    background-color: rgba(0, 0, 0, 0.3);
+    padding: 10px;
+    border-radius: 5px;
+    margin-bottom: 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  
+  #active-card-instructions {
+    margin: 5px 0;
+    font-size: 0.9em;
+    text-align: center;
+  }
+  
+  .cancel-button {
+    background-color: #e65100;
+    color: white;
+    border: none;
+    padding: 5px 15px;
+    margin: 5px;
+    font-size: 0.9em;
+    cursor: pointer;
+    border-radius: 5px;
+    font-weight: bold;
+  }
+  
+  .cancel-button:hover {
+    background-color: #ff7d33;
+  }
+  
+  #card-help-container {
+    width: 400px;
+    margin: 10px 0;
+  }
+  
+  .help-button {
+    background-color: #ffd700;
+    border: none;
+    padding: 5px 10px;
+    margin: 5px;
+    font-size: 0.9em;
+    cursor: pointer;
+    border-radius: 5px;
+    display: block;
+    width: 100%;
+  }
+  
+  .help-button:hover {
+    background-color: #e6c200;
+  }
+  
+  #card-help {
+    background-color: rgba(0,0,0,0.3);
+    border-radius: 5px;
+    padding: 10px;
+    margin-top: 5px;
+  }
+  
+  #card-help h3 {
+    margin-top: 0;
+    font-size: 1.1em;
+  }
+  
+  #card-help ul {
+    padding-left: 20px;
+  }
+  
+  #card-help li {
+    margin-bottom: 5px;
+  }
+  
+  .hidden {
+    display: none;
+  }
+  
+  .highlight {
+    background-color: rgba(255, 255, 0, 0.4) !important;
+  }
+  
+  /* Add specific class for protected pieces */
+  .protected {
+    box-shadow: inset 0 0 10px rgba(0, 100, 255, 0.8) !important;
+    animation: shield-pulse 2s infinite;
+  }
+  
+  @keyframes shield-pulse {
+    0% { box-shadow: inset 0 0 5px rgba(0, 100, 255, 0.4); }
+    50% { box-shadow: inset 0 0 20px rgba(0, 100, 255, 0.8); }
+    100% { box-shadow: inset 0 0 5px rgba(0, 100, 255, 0.4); }
+  }
+
+  /* Default square styling with transparent outline for smooth transition */
+.square-55d63 {
+    outline: 3px solid transparent;
+    transition: outline-color 0.5s;
+  }
+  
+  /* Shielded square styling with blue outline */
+  .square-55d63.shielded {
+    outline-color: blue;
+  }
+  
+  /* Optional: Basic styling for the cancel button (adjust as needed) */
+  #cancel-card-action {
+    margin-top: 10px;
+  }
+
+  .shield-active {
+    background-color: rgba(0, 0, 255, 0.3) !important;
+    animation: shield-pulse 2s infinite;
+  }
+  
+  @keyframes shield-pulse {
+    0% { box-shadow: 0 0 0 0 rgba(0, 0, 255, 0.4); }
+    70% { box-shadow: 0 0 10px 10px rgba(0, 0, 255, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(0, 0, 255, 0); }
+  }
