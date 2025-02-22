@@ -36,7 +36,7 @@ mongoose.connect(process.env.MONGO_URI, {
 // Game Model
 // ------------------------------
 const GameSchema = new mongoose.Schema({
-  gameCode: { type: String, default: "AutoMatch" },
+  gameCode: { type: String, default: () => Math.random().toString(36).substring(2, 8) },
   boardState: { type: String, default: "start" },
   playerHands: {
     white: { type: Array, default: [] },
@@ -44,7 +44,8 @@ const GameSchema = new mongoose.Schema({
   },
   turn: { type: String, default: "white" },
   messages: { type: Array, default: [] },
-  createdAt: { type: Date, default: Date.now }
+  createdAt: { type: Date, default: Date.now },
+  players: { type: Number, default: 0 }
 });
 
 const Game = mongoose.model("Game", GameSchema);
@@ -59,17 +60,16 @@ app.get("/match", async (req, res) => {
   try {
     if (waitingGameId) {
       const game = await Game.findById(waitingGameId);
-      if (game) {
-        // Found a waiting game. Clear waitingGameId so that subsequent players create new ones.
+      if (game && game.players < 2) {
+        await Game.findByIdAndUpdate(waitingGameId, { players: game.players + 1 });
         waitingGameId = null;
         console.log("Found waiting game:", game._id);
         return res.json(game);
       }
     }
-    // Otherwise, create a new waiting game.
+    
     const newGame = new Game({
-      boardState: "start",
-      turn: "white",
+      players: 1,
       messages: ["Game started (waiting for opponent)."]
     });
     await newGame.save();
@@ -107,14 +107,31 @@ io.on("connection", (socket) => {
       console.error("join-game received with no gameId");
       return;
     }
-    socket.join(gameId);
-    console.log(`📌 Player joined game: ${gameId}`);
-    // Optionally, you can check the number of sockets in this room
-    const clients = await io.in(gameId).allSockets();
-    console.log(`Players in room ${gameId}: ${clients.size}`);
-    // When two or more players are in the room, you could emit an event to enable gameplay.
-    if (clients.size >= 2) {
-      io.to(gameId).emit("match-start", { message: "Opponent joined! Game starting." });
+    
+    try {
+      const game = await Game.findById(gameId);
+      if (!game) {
+        socket.emit("error", "Game not found");
+        return;
+      }
+
+      socket.join(gameId);
+      console.log(`📌 Player joined game: ${gameId}`);
+      
+      const clients = await io.in(gameId).allSockets();
+      console.log(`Players in room ${gameId}: ${clients.size}`);
+      
+      await Game.findByIdAndUpdate(gameId, { players: clients.size });
+      
+      if (clients.size >= 2) {
+        io.to(gameId).emit("match-start", { 
+          message: "Opponent joined! Game starting.",
+          gameId: gameId
+        });
+      }
+    } catch (err) {
+      console.error("Error joining game:", err);
+      socket.emit("error", "Failed to join game");
     }
   });
 
@@ -130,8 +147,17 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("disconnect", () => {
-    console.log("🚪 Player disconnected:", socket.id);
+  socket.on("disconnecting", async () => {
+    try {
+      for (const room of socket.rooms) {
+        if (room !== socket.id) {
+          const clients = await io.in(room).allSockets();
+          await Game.findByIdAndUpdate(room, { players: clients.size - 1 });
+        }
+      }
+    } catch (err) {
+      console.error("Error handling disconnect:", err);
+    }
   });
 });
 

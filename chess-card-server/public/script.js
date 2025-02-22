@@ -79,6 +79,20 @@ document.addEventListener("DOMContentLoaded", () => {
     game.board.position(fen);
   });
 
+  socket.on("error", (message) => {
+    console.error("Socket error:", message);
+    game.showMessage(message);
+  });
+
+  socket.on("match-start", (data) => {
+    game.waitingForOpponent = false;
+    game.showMessage(data.message);
+    // Ensure gameId is set
+    if (data.gameId && !gameId) {
+      gameId = data.gameId;
+    }
+  });
+
   // ------------------------------
   // Game Object (Client-Side)
   // ------------------------------
