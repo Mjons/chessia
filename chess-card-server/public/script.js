@@ -24,7 +24,7 @@ if (!myColor) {
 // ------------------------------
 // Socket.IO Initialization
 // ------------------------------
-const socket = io("http://YOUR_SERVER_IP:3000");
+const socket = io("http://147.182.134.57:3000"); // Replace with your actual server URL/IP
 
 // ------------------------------
 // Game Code & Server-Side Integration (Client-Side)
@@ -37,11 +37,16 @@ if (!gameCode) {
   if (!gameCode) gameCode = "Room123";
   localStorage.setItem("gameCode", gameCode);
 }
+// Show the room name at the top of the match
+const roomNameEl = document.getElementById("room-name");
+if (roomNameEl) {
+  roomNameEl.textContent = "Room: " + gameCode;
+}
 
 let gameId = localStorage.getItem("gameId");
 if (!gameId) {
   // Use /join-code endpoint to find or create a game with the provided code
-  fetch("http://YOUR_SERVER_IP:3000/join-code", {
+  fetch("http://147.182.134.57:3000/join-code", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ gameCode })
@@ -58,7 +63,7 @@ if (!gameId) {
 }
 
 function loadGame() {
-  fetch(`http://YOUR_SERVER_IP:3000/game/${gameId}`)
+  fetch(`http://147.182.134.57:3000/game/${gameId}`)
     .then(response => response.json())
     .then(data => {
       // Load board state from server
@@ -68,7 +73,7 @@ function loadGame() {
       game.updateCardDisplay();
     })
     .catch(err => console.error("Error loading game:", err));
-  // Tell the server to add this socket to the game room
+  // Join the game room via socket
   socket.emit("join-game", gameId);
 }
 
@@ -117,7 +122,7 @@ const game = {
       draggable: true,
       position: "start",
       pieceTheme: "img/chesspieces/custom/{piece}.png",
-      orientation: myColor, // Orient board for current player
+      orientation: myColor, // Board oriented for current player
       onDragStart: (source, piece) => {
         if (this.waitingForOpponent) {
           this.showMessage("Waiting for opponent to join...");
@@ -143,7 +148,7 @@ const game = {
       document.getElementById("black-hand").style.display = "block";
     }
 
-    // Add single click listener for card actions on board squares
+    // Add click listeners for card actions on board squares
     const squares = document.querySelectorAll(".square-55d63");
     squares.forEach((square) => {
       square.addEventListener("click", (e) => {
@@ -903,7 +908,7 @@ game.init();
 // ------------------------------
 let storedGameId = localStorage.getItem("gameId");
 if (!storedGameId) {
-  fetch("http://YOUR_SERVER_IP:3000/create-game", {
+  fetch("http://147.182.134.57:3000/create-game", {
     method: "POST",
     headers: { "Content-Type": "application/json" }
   })
@@ -920,7 +925,7 @@ if (!storedGameId) {
 }
 
 function loadGame() {
-  fetch(`http://YOUR_SERVER_IP:3000/game/${gameId}`)
+  fetch(`http://147.182.134.57:3000/game/${gameId}`)
     .then(response => response.json())
     .then(data => {
       // Load board state from server
