@@ -1,7 +1,7 @@
 // ------------------------------
 // SERVER-SIDE Integration Block
 // ------------------------------
-const socket = io("http://147.182.134.57:3000/"); // Update this URL for your production server
+
 
 let gameId = localStorage.getItem("gameId");
 if (!gameId) {
