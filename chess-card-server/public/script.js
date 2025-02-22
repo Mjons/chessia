@@ -24,30 +24,41 @@ if (!myColor) {
 // ------------------------------
 // Socket.IO Initialization
 // ------------------------------
-const socket = io("http://147.182.134.57:3000"); // Replace with your actual server IP/domain
+const socket = io("http://YOUR_SERVER_IP:3000");
 
 // ------------------------------
-// Server-Side Integration (Client-Side)
+// Game Code & Server-Side Integration (Client-Side)
 // ------------------------------
+
+// Prompt the user for a game code so that two players with the same code share a game
+let gameCode = localStorage.getItem("gameCode");
+if (!gameCode) {
+  gameCode = prompt("Enter a game code to join or create:", "Room123");
+  if (!gameCode) gameCode = "Room123";
+  localStorage.setItem("gameCode", gameCode);
+}
+
 let gameId = localStorage.getItem("gameId");
 if (!gameId) {
-  fetch("http://147.182.134.57:3000/create-game", {
+  // Use /join-code endpoint to find or create a game with the provided code
+  fetch("http://YOUR_SERVER_IP:3000/join-code", {
     method: "POST",
-    headers: { "Content-Type": "application/json" }
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ gameCode })
   })
     .then(response => response.json())
-    .then(data => {
-      gameId = data._id;
+    .then(gameDoc => {
+      gameId = gameDoc._id;
       localStorage.setItem("gameId", gameId);
       loadGame();
     })
-    .catch(err => console.error("Error creating game:", err));
+    .catch(err => console.error("Error joining code:", err));
 } else {
   loadGame();
 }
 
 function loadGame() {
-  fetch(`http://147.182.134.57:3000/game/${gameId}`)
+  fetch(`http://YOUR_SERVER_IP:3000/game/${gameId}`)
     .then(response => response.json())
     .then(data => {
       // Load board state from server
@@ -57,6 +68,7 @@ function loadGame() {
       game.updateCardDisplay();
     })
     .catch(err => console.error("Error loading game:", err));
+  // Tell the server to add this socket to the game room
   socket.emit("join-game", gameId);
 }
 
@@ -64,24 +76,11 @@ function sendMove(fen) {
   socket.emit("move-piece", { gameId, fen });
 }
 
-// Listen for player count updates
-socket.on("player-count", (count) => {
-  console.log("Players in room:", count);
-  if (count >= 2) {
-    game.waitingForOpponent = false;
-    game.showMessage("Opponent has joined! You can now play.");
-  } else {
-    game.waitingForOpponent = true;
-    game.showMessage("Waiting for opponent to join...");
-  }
-});
-
-// Listen for board updates from the server
 socket.on("update-board", (fen) => {
   game.board.position(fen);
 });
 
-// Utility function to update hand display if needed
+// (Optional) Utility function to update hand display if needed
 function updateHandDisplay(newHands) {
   playerHand[myColor] = newHands[myColor];
   game.updateCardDisplay();
@@ -106,19 +105,19 @@ const game = {
   previousTurn: null,
   cardPlayedThisTurn: false,
   isSkippingTurn: false,
-  waitingForOpponent: true, // Initially waiting for an opponent
+  waitingForOpponent: true, // Initially waiting until at least 2 players join
   newlyDrawnCards: {
     white: new Set(),
     black: new Set()
   },
 
   init() {
-    console.log('Initializing chessboard...');
-    this.board = Chessboard('board', {
+    console.log("Initializing chessboard...");
+    this.board = Chessboard("board", {
       draggable: true,
-      position: 'start',
-      pieceTheme: 'img/chesspieces/custom/{piece}.png',
-      orientation: myColor, // Board oriented for current player
+      position: "start",
+      pieceTheme: "img/chesspieces/custom/{piece}.png",
+      orientation: myColor, // Orient board for current player
       onDragStart: (source, piece) => {
         if (this.waitingForOpponent) {
           this.showMessage("Waiting for opponent to join...");
@@ -130,12 +129,12 @@ const game = {
       onMouseoverSquare: this.onMouseoverSquare.bind(this),
       onMouseoutSquare: this.onMouseoutSquare.bind(this)
     });
-    console.log('Chessboard initialized.');
+    console.log("Chessboard initialized.");
     this.updateStatus();
     this.updateTokens();
     this.updateCardDisplay();
 
-    // Hide opponent's cards: show only my hand
+    // Hide opponent's cards; show only current player's hand
     if (myColor === "white") {
       document.getElementById("black-hand").style.display = "none";
       document.getElementById("white-hand").style.display = "block";
@@ -144,60 +143,60 @@ const game = {
       document.getElementById("black-hand").style.display = "block";
     }
 
-    // Add single click listener for card actions
-    const squares = document.querySelectorAll('.square-55d63');
-    squares.forEach(square => {
-      square.addEventListener('click', (e) => {
-        if (this.cardMode === 'teleport') {
+    // Add single click listener for card actions on board squares
+    const squares = document.querySelectorAll(".square-55d63");
+    squares.forEach((square) => {
+      square.addEventListener("click", (e) => {
+        if (this.cardMode === "teleport") {
           this.handleTeleportClick(e);
-        } else if (this.cardMode === 'shield') {
+        } else if (this.cardMode === "shield") {
           this.handleShieldClick(this.cardPlayer, e);
-        } else if (this.cardMode === 'knight') {
+        } else if (this.cardMode === "knight") {
           this.handleKnightsLeapClick(this.cardPlayer, e);
-        } else if (this.cardMode === 'swap') {
+        } else if (this.cardMode === "swap") {
           this.handleSwapClick(e);
         }
       });
     });
 
     // Add skip turn button
-    const skipTurnBtn = document.createElement('button');
-    skipTurnBtn.id = 'skip-turn-btn';
-    skipTurnBtn.className = 'help-button';
-    skipTurnBtn.textContent = 'Skip Turn (Draw Card)';
+    const skipTurnBtn = document.createElement("button");
+    skipTurnBtn.id = "skip-turn-btn";
+    skipTurnBtn.className = "help-button";
+    skipTurnBtn.textContent = "Skip Turn (Draw Card)";
     skipTurnBtn.onclick = () => {
-      const currentPlayer = this.chess.turn() === 'w' ? 'white' : 'black';
+      const currentPlayer = this.chess.turn() === "w" ? "white" : "black";
       if (!this.cardPlayedThisTurn) {
         this.skipTurn(currentPlayer);
       } else {
         this.showMessage("You can't skip your turn after playing a card!");
       }
     };
-    document.querySelector('.container').appendChild(skipTurnBtn);
+    document.querySelector(".container").appendChild(skipTurnBtn);
 
-    // Initialize the help section
-    const helpButton = document.createElement('button');
-    helpButton.id = 'toggle-help';
-    helpButton.className = 'help-button';
-    helpButton.textContent = 'Show Game Rules';
+    // Initialize help section
+    const helpButton = document.createElement("button");
+    helpButton.id = "toggle-help";
+    helpButton.className = "help-button";
+    helpButton.textContent = "Show Game Rules";
     helpButton.onclick = () => this.toggleCardHelp();
 
-    const helpSection = document.createElement('div');
-    helpSection.id = 'card-help';
-    helpSection.className = 'hidden';
+    const helpSection = document.createElement("div");
+    helpSection.id = "card-help";
+    helpSection.className = "hidden";
     helpSection.innerHTML = `
         <div class="help-section">
             <h3>Card Effects</h3>
             <ul>
                 <li><strong>Teleportation:</strong> Move any piece to an empty square. Ends your turn.</li>
                 <li><strong>Shield:</strong> Protect one piece from capture until your next turn.</li>
-                <li><strong>Knight's Leap:</strong> Move a piece like a knight. Can capture pieces. Ends your turn.</li>
+                <li><strong>Knight's Leap:</strong> Move a piece like a knight (L-shape). Can capture pieces. Ends your turn.</li>
                 <li><strong>Swap Sacrifice:</strong> Swap positions of two pieces. Ends your turn.</li>
             </ul>
         </div>
         <div class="help-section">
             <h3>How to Draw Cards</h3>
-            <p>You can draw a card (up to 3 max) by:</p>
+            <p>You can draw a card (up to 3 max) by performing any of these actions:</p>
             <ul>
                 <li>Putting opponent's king in check</li>
                 <li>Promoting a pawn</li>
@@ -211,20 +210,19 @@ const game = {
             <p><em>You can hold up to 3 cards at a time.</em></p>
         </div>
     `;
-
-    const helpContainer = document.createElement('div');
-    helpContainer.id = 'card-help-container';
+    const helpContainer = document.createElement("div");
+    helpContainer.id = "card-help-container";
     helpContainer.appendChild(helpButton);
     helpContainer.appendChild(helpSection);
-    document.querySelector('.container').appendChild(helpContainer);
+    document.querySelector(".container").appendChild(helpContainer);
   },
 
   onDragStart(source, piece) {
     if (this.cardMode) return false;
     if (this.chess.game_over()) return false;
     // Only allow moving your own pieces on your turn
-    if ((this.chess.turn() === 'w' && piece.search(/^b/) !== -1) ||
-        (this.chess.turn() === 'b' && piece.search(/^w/) !== -1)) {
+    if ((this.chess.turn() === "w" && piece.search(/^b/) !== -1) ||
+        (this.chess.turn() === "b" && piece.search(/^w/) !== -1)) {
       return false;
     }
     return true;
@@ -232,27 +230,27 @@ const game = {
 
   onDrop(source, target) {
     if (this.cardMode) return;
-    const move = this.chess.move({ from: source, to: target, promotion: 'q' });
-    if (!move) return 'snapback';
-    const currentPlayer = this.chess.turn() === 'w' ? 'black' : 'white';
-    const opponent = currentPlayer === 'white' ? 'black' : 'white';
+    const move = this.chess.move({ from: source, to: target, promotion: "q" });
+    if (!move) return "snapback";
+    const currentPlayer = this.chess.turn() === "w" ? "black" : "white";
+    const opponent = currentPlayer === "white" ? "black" : "white";
     if (move.captured && this.protectedPiece === target && this.shieldActiveForPlayer === opponent) {
       this.chess.undo();
       console.log(`Move blocked: ${opponent}'s piece at ${target} is shielded!`);
-      return 'snapback';
+      return "snapback";
     }
     this.drawCard(currentPlayer);
     if (move.captured) {
       this.drawCard(currentPlayer);
-      document.getElementById('capture-sound').play();
+      document.getElementById("capture-sound").play();
     } else {
-      document.getElementById('move-sound').play();
+      document.getElementById("move-sound").play();
     }
     this.board.position(this.chess.fen());
     this.updateStatus();
     this.updateCardDisplay();
     if (move !== null) {
-      const nextPlayer = this.chess.turn() === 'w' ? 'white' : 'black';
+      const nextPlayer = this.chess.turn() === "w" ? "white" : "black";
       this.clearNewlyDrawnCards(nextPlayer);
     }
     sendMove(this.chess.fen());
@@ -273,11 +271,11 @@ const game = {
         shouldDrawCard = true;
         reasons.push("putting opponent in check");
       }
-      if (lastMove.flags.includes('p')) {
+      if (lastMove.flags.includes("p")) {
         shouldDrawCard = true;
         reasons.push("promoting a pawn");
       }
-      if (lastMove.flags.includes('k') || lastMove.flags.includes('q')) {
+      if (lastMove.flags.includes("k") || lastMove.flags.includes("q")) {
         shouldDrawCard = true;
         reasons.push("castling");
       }
@@ -321,7 +319,7 @@ const game = {
     this.pendingCard = { player, cardIndex };
     const card = playerHand[player][cardIndex];
     this.cardPlayer = player;
-    const currentTurn = this.chess.turn() === 'w' ? 'white' : 'black';
+    const currentTurn = this.chess.turn() === "w" ? "white" : "black";
     if (player !== currentTurn) {
       this.showMessage(`You can only play cards during your turn! Current turn: ${currentTurn}`);
       return;
@@ -353,7 +351,7 @@ const game = {
         return;
     }
     if (this.cardMode) {
-      document.getElementById('cancel-card-action').style.display = 'block';
+      document.getElementById("cancel-card-action").style.display = "block";
     }
   },
 
@@ -363,15 +361,15 @@ const game = {
   },
 
   enableTeleportation(player) {
-    this.cardMode = 'teleport';
+    this.cardMode = "teleport";
     this.selectedPiece = null;
     this.highlightPlayerPieces(player);
   },
 
   showMessage(message) {
     console.log(message);
-    const messageLog = document.getElementById('message-log');
-    const messageElement = document.createElement('p');
+    const messageLog = document.getElementById("message-log");
+    const messageElement = document.createElement("p");
     messageElement.textContent = message;
     if (messageLog.firstChild) {
       messageLog.insertBefore(messageElement, messageLog.firstChild);
@@ -385,13 +383,13 @@ const game = {
   },
 
   handleTeleportClick(event) {
-    const square = event.target.closest('.square-55d63');
+    const square = event.target.closest(".square-55d63");
     if (!square) return;
     const position = square.dataset.square;
     if (!position) return;
     if (!this.selectedPiece) {
       const piece = this.chess.get(position);
-      if (piece && piece.color === (this.cardPlayer === 'white' ? 'w' : 'b')) {
+      if (piece && piece.color === (this.cardPlayer === "white" ? "w" : "b")) {
         this.selectedPiece = position;
         this.highlightEmptySquares();
         this.showMessage(`Selected ${piece.type} at ${position}. Now click an empty square for destination.`);
@@ -403,8 +401,8 @@ const game = {
         this.updateCardDisplay();
         this.cardPlayedThisTurn = true;
         this.resetCardMode();
-        const nextPlayer = this.cardPlayer === 'white' ? 'black' : 'white';
-        const newFen = this.chess.fen().replace(/ w | b /, ` ${nextPlayer === 'white' ? 'w' : 'b'} `);
+        const nextPlayer = this.cardPlayer === "white" ? "black" : "white";
+        const newFen = this.chess.fen().replace(/ w | b /, ` ${nextPlayer === "white" ? "w" : "b"} `);
         this.chess.load(newFen);
         this.board.position(this.chess.fen());
         this.updateStatus();
@@ -431,7 +429,7 @@ const game = {
       console.log("Invalid teleportation: cannot leave king in check.");
       return false;
     } else {
-      document.getElementById('move-sound').play();
+      document.getElementById("move-sound").play();
       console.log(`${player} teleported ${piece.type} from ${source} to ${target}. Turn ends.`);
       sendMove(this.chess.fen());
       return true;
@@ -439,17 +437,17 @@ const game = {
   },
 
   enableShield(player) {
-    this.cardMode = 'shield';
+    this.cardMode = "shield";
     this.selectedPiece = null;
     this.highlightPlayerPieces(player);
   },
 
   handleShieldClick(player, event) {
-    const square = event.target.closest('.square-55d63');
+    const square = event.target.closest(".square-55d63");
     if (!square) return;
     const position = square.dataset.square;
     const piece = this.chess.get(position);
-    if (piece && piece.color === (player === 'white' ? 'w' : 'b')) {
+    if (piece && piece.color === (player === "white" ? "w" : "b")) {
       this.applyShield(player, position);
     } else {
       this.showMessage("You can only shield your own pieces!");
@@ -457,18 +455,18 @@ const game = {
   },
 
   enableKnightsLeap(player) {
-    this.cardMode = 'knight';
+    this.cardMode = "knight";
     this.selectedPiece = null;
     this.highlightPlayerPieces(player);
   },
 
   handleKnightsLeapClick(player, event) {
-    const square = event.target.closest('.square-55d63');
+    const square = event.target.closest(".square-55d63");
     if (!square) return;
     const position = square.dataset.square;
     if (!this.selectedPiece) {
       const piece = this.chess.get(position);
-      if (piece && piece.color === (player === 'white' ? 'w' : 'b')) {
+      if (piece && piece.color === (player === "white" ? "w" : "b")) {
         this.selectedPiece = position;
         this.highlightKnightMoves(position);
         this.showMessage(`${player} selected ${piece.type} at ${position}. Now click a knight-move destination.`);
@@ -481,8 +479,8 @@ const game = {
           this.updateCardDisplay();
           this.cardPlayedThisTurn = true;
           this.resetCardMode();
-          const nextPlayer = player === 'white' ? 'black' : 'white';
-          const newFen = this.chess.fen().replace(/ w | b /, ` ${nextPlayer === 'white' ? 'w' : 'b'} `);
+          const nextPlayer = player === "white" ? "black" : "white";
+          const newFen = this.chess.fen().replace(/ w | b /, ` ${nextPlayer === "white" ? "w" : "b"} `);
           this.chess.load(newFen);
           this.board.position(this.chess.fen());
           this.updateStatus();
@@ -501,7 +499,7 @@ const game = {
     const piece = this.chess.get(source);
     if (!piece) return false;
     const targetPiece = this.chess.get(target);
-    const opponent = player === 'white' ? 'black' : 'white';
+    const opponent = player === "white" ? "black" : "white";
     if (targetPiece && this.protectedPiece === target && this.shieldActiveForPlayer === opponent) {
       this.showMessage(`Knight's Leap blocked: ${opponent}'s piece at ${target} is shielded!`);
       return false;
@@ -518,12 +516,12 @@ const game = {
     } else {
       if (originalTargetPiece && originalTargetPiece.color !== piece.color) {
         this.showMessage(`${player} captured ${originalTargetPiece.type} at ${target} with Knight's Leap!`);
-        document.getElementById('capture-sound').play();
+        document.getElementById("capture-sound").play();
       } else {
-        document.getElementById('move-sound').play();
+        document.getElementById("move-sound").play();
       }
-      const nextPlayer = player === 'white' ? 'black' : 'white';
-      const newFen = this.chess.fen().replace(/ w | b /, ` ${nextPlayer === 'white' ? 'w' : 'b'} `);
+      const nextPlayer = player === "white" ? "black" : "white";
+      const newFen = this.chess.fen().replace(/ w | b /, ` ${nextPlayer === "white" ? "w" : "b"} `);
       this.chess.load(newFen);
       this.showMessage(`${player} moved ${piece.type} like a knight from ${source} to ${target}. ${nextPlayer}'s turn.`);
       sendMove(this.chess.fen());
@@ -532,19 +530,19 @@ const game = {
   },
 
   enableSwap(player) {
-    this.cardMode = 'swap';
+    this.cardMode = "swap";
     this.selectedPiece = null;
     this.swapFirstPiece = null;
     this.highlightPlayerPieces(player);
   },
 
   handleSwapClick(event) {
-    const square = event.target.closest('.square-55d63');
+    const square = event.target.closest(".square-55d63");
     if (!square) return;
     const position = square.dataset.square;
     if (!this.swapFirstPiece) {
       const piece = this.chess.get(position);
-      if (piece && piece.color === (this.cardPlayer === 'white' ? 'w' : 'b')) {
+      if (piece && piece.color === (this.cardPlayer === "white" ? "w" : "b")) {
         this.swapFirstPiece = position;
         this.highlightPlayerPieces(this.cardPlayer);
         this.showMessage(`${this.cardPlayer} selected ${piece.type} at ${position}. Now click the second piece to swap.`);
@@ -556,8 +554,8 @@ const game = {
         this.updateCardDisplay();
         this.cardPlayedThisTurn = true;
         this.resetCardMode();
-        const nextPlayer = this.cardPlayer === 'white' ? 'black' : 'white';
-        const newFen = this.chess.fen().replace(/ w | b /, ` ${nextPlayer === 'white' ? 'w' : 'b'} `);
+        const nextPlayer = this.cardPlayer === "white" ? "black" : "white";
+        const newFen = this.chess.fen().replace(/ w | b /, ` ${nextPlayer === "white" ? "w" : "b"} `);
         this.chess.load(newFen);
         this.board.position(this.chess.fen());
         this.updateStatus();
@@ -587,9 +585,9 @@ const game = {
         return false;
       }
       this.board.position(this.chess.fen());
-      document.getElementById('move-sound').play();
-      const nextPlayer = player === 'white' ? 'black' : 'white';
-      const newFen = this.chess.fen().replace(/ w | b /, ` ${nextPlayer === 'white' ? 'w' : 'b'} `);
+      document.getElementById("move-sound").play();
+      const nextPlayer = player === "white" ? "black" : "white";
+      const newFen = this.chess.fen().replace(/ w | b /, ` ${nextPlayer === "white" ? "w" : "b"} `);
       this.chess.load(newFen);
       this.showMessage(`${player} swapped ${piece1.type} at ${source} with ${piece2.type} at ${target}. ${nextPlayer}'s turn.`);
       sendMove(this.chess.fen());
@@ -604,21 +602,21 @@ const game = {
 
   applyShield(player, square) {
     const piece = this.chess.get(square);
-    if (piece && piece.color === (player === 'white' ? 'w' : 'b')) {
+    if (piece && piece.color === (player === "white" ? "w" : "b")) {
       if (this.protectedPiece) {
         const oldSquare = document.querySelector(`.square-${this.protectedPiece}`);
         if (oldSquare) {
-          oldSquare.classList.remove('shield-active');
+          oldSquare.classList.remove("shield-active");
         }
       }
       this.protectedPiece = square;
       this.shieldActiveForPlayer = player;
       const squareElement = document.querySelector(`.square-${square}`);
       if (squareElement) {
-        squareElement.classList.add('shield-active');
-        squareElement.classList.add('shield-animation');
+        squareElement.classList.add("shield-active");
+        squareElement.classList.add("shield-animation");
         setTimeout(() => {
-          squareElement.classList.remove('shield-animation');
+          squareElement.classList.remove("shield-animation");
         }, 1000);
       }
       this.showMessage(`${player} protected piece at ${square} until their next turn begins.`);
@@ -632,9 +630,9 @@ const game = {
   },
 
   isKnightMove(source, target) {
-    const sourceX = source.charCodeAt(0) - 'a'.charCodeAt(0);
+    const sourceX = source.charCodeAt(0) - "a".charCodeAt(0);
     const sourceY = parseInt(source[1]) - 1;
-    const targetX = target.charCodeAt(0) - 'a'.charCodeAt(0);
+    const targetX = target.charCodeAt(0) - "a".charCodeAt(0);
     const targetY = parseInt(target[1]) - 1;
     const dx = Math.abs(targetX - sourceX);
     const dy = Math.abs(targetY - sourceY);
@@ -644,7 +642,7 @@ const game = {
   advanceTurn() {
     const currentTurn = this.chess.turn();
     this.chess.load(this.chess.fen(), true);
-    this.chess.load(`${this.chess.fen().split(' ')[0]} ${currentTurn === 'w' ? 'b' : 'w'} ${this.chess.fen().split(' ')[2]} ${this.chess.fen().split(' ')[3]} ${this.chess.fen().split(' ')[4]} ${parseInt(this.chess.fen().split(' ')[5]) + 1}`, true);
+    this.chess.load(`${this.chess.fen().split(" ")[0]} ${currentTurn === "w" ? "b" : "w"} ${this.chess.fen().split(" ")[2]} ${this.chess.fen().split(" ")[3]} ${this.chess.fen().split(" ")[4]} ${parseInt(this.chess.fen().split(" ")[5]) + 1}`, true);
   },
 
   lockBoard() {
@@ -655,39 +653,39 @@ const game = {
   },
 
   highlightPlayerPieces(player) {
-    const squares = document.querySelectorAll('.square-55d63');
+    const squares = document.querySelectorAll(".square-55d63");
     squares.forEach(square => {
       const piece = this.chess.get(square.dataset.square);
-      if (piece && piece.color === (player === 'white' ? 'w' : 'b')) {
-        square.classList.add('highlight');
+      if (piece && piece.color === (player === "white" ? "w" : "b")) {
+        square.classList.add("highlight");
       } else {
-        square.classList.remove('highlight');
+        square.classList.remove("highlight");
       }
     });
   },
 
   highlightAllSquares() {
-    const squares = document.querySelectorAll('.square-55d63');
-    squares.forEach(square => square.classList.add('highlight'));
+    const squares = document.querySelectorAll(".square-55d63");
+    squares.forEach(square => square.classList.add("highlight"));
   },
 
   highlightKnightMoves(source) {
-    const sourceX = source.charCodeAt(0) - 'a'.charCodeAt(0);
+    const sourceX = source.charCodeAt(0) - "a".charCodeAt(0);
     const sourceY = parseInt(source[1]) - 1;
     const knightMoves = [
       [2, 1], [2, -1], [-2, 1], [-2, -1],
       [1, 2], [1, -2], [-1, 2], [-1, -2]
     ];
-    const squares = document.querySelectorAll('.square-55d63');
-    squares.forEach(square => square.classList.remove('highlight'));
+    const squares = document.querySelectorAll(".square-55d63");
+    squares.forEach(square => square.classList.remove("highlight"));
     knightMoves.forEach(([dx, dy]) => {
       const targetX = sourceX + dx;
       const targetY = sourceY + dy;
       if (targetX >= 0 && targetX < 8 && targetY >= 0 && targetY < 8) {
-        const targetSquare = String.fromCharCode('a'.charCodeAt(0) + targetX) + (targetY + 1);
+        const targetSquare = String.fromCharCode("a".charCodeAt(0) + targetX) + (targetY + 1);
         const squareElement = document.querySelector(`.square-${targetSquare}`);
         if (squareElement) {
-          squareElement.classList.add('highlight');
+          squareElement.classList.add("highlight");
         }
       }
     });
@@ -698,49 +696,49 @@ const game = {
     this.cardPlayer = null;
     this.selectedPiece = null;
     this.pendingCard = null;
-    const squares = document.querySelectorAll('.square-55d63');
+    const squares = document.querySelectorAll(".square-55d63");
     squares.forEach(square => {
-      square.classList.remove('highlight');
+      square.classList.remove("highlight");
     });
     this.board.draggable = true;
-    document.getElementById('cancel-card-action').style.display = 'none';
+    document.getElementById("cancel-card-action").style.display = "none";
   },
 
   onMouseoverSquare(square, piece) {
-    if (this.cardMode === 'shield' && piece) {
-      document.querySelector(`.square-${square}`).classList.add('highlight');
+    if (this.cardMode === "shield" && piece) {
+      document.querySelector(`.square-${square}`).classList.add("highlight");
     }
   },
 
   onMouseoutSquare(square, piece) {
-    if (this.cardMode === 'shield' && this.protectedPiece !== square) {
-      document.querySelector(`.square-${square}`).classList.remove('highlight');
+    if (this.cardMode === "shield" && this.protectedPiece !== square) {
+      document.querySelector(`.square-${square}`).classList.remove("highlight");
     }
   },
 
   updateStatus() {
-    let status = '';
+    let status = "";
     if (this.chess.in_checkmate()) {
-      status = `Checkmate! ${this.chess.turn() === 'w' ? 'Black' : 'White'} wins!`;
+      status = `Checkmate! ${this.chess.turn() === "w" ? "Black" : "White"} wins!`;
       this.showMessage(status);
     } else if (this.chess.in_stalemate()) {
-      status = 'Stalemate! Draw!';
+      status = "Stalemate! Draw!";
       this.showMessage(status);
     } else {
-      const turn = this.chess.turn() === 'w' ? 'White' : 'Black';
-      status = `${turn}'s turn${this.chess.in_check() ? ' - Check!' : ''}`;
+      const turn = this.chess.turn() === "w" ? "White" : "Black";
+      status = `${turn}'s turn${this.chess.in_check() ? " - Check!" : ""}`;
       if (this.chess.in_check()) {
         this.showMessage(`${turn} is in check!`);
       }
     }
-    document.getElementById('status').textContent = status;
-    const currentTurn = this.chess.turn() === 'w' ? 'white' : 'black';
+    document.getElementById("status").textContent = status;
+    const currentTurn = this.chess.turn() === "w" ? "white" : "black";
     if (this.previousTurn !== currentTurn) {
       this.cardPlayedThisTurn = false;
       if (this.shieldActiveForPlayer && this.shieldActiveForPlayer === currentTurn) {
         const squareElement = document.querySelector(`.square-${this.protectedPiece}`);
         if (squareElement) {
-          squareElement.classList.remove('shield-active');
+          squareElement.classList.remove("shield-active");
         }
         this.showMessage(`Shield deactivated for ${this.shieldActiveForPlayer} as their turn begins.`);
         this.protectedPiece = null;
@@ -751,8 +749,8 @@ const game = {
   },
 
   updateTokens() {
-    document.getElementById('white-tokens').textContent = `White: ${this.players.white.tokens} tokens`;
-    document.getElementById('black-tokens').textContent = `Black: ${this.players.black.tokens} tokens`;
+    document.getElementById("white-tokens").textContent = `White: ${this.players.white.tokens} tokens`;
+    document.getElementById("black-tokens").textContent = `Black: ${this.players.black.tokens} tokens`;
   },
 
   updateCardDisplay() {
@@ -764,16 +762,16 @@ const game = {
       document.getElementById("black-hand").style.display = "block";
       document.getElementById("white-hand").style.display = "none";
     }
-    const handElement = myColor === "white" ? document.getElementById('white-hand') : document.getElementById('black-hand');
-    handElement.innerHTML = '';
+    const handElement = myColor === "white" ? document.getElementById("white-hand") : document.getElementById("black-hand");
+    handElement.innerHTML = "";
     playerHand[myColor].forEach((card, index) => {
-      const button = document.createElement('button');
+      const button = document.createElement("button");
       button.textContent = card.name;
       button.onclick = () => this.playCard(myColor, index);
-      const currentTurn = this.chess.turn() === 'w' ? 'white' : 'black';
+      const currentTurn = this.chess.turn() === "w" ? "white" : "black";
       button.disabled = currentTurn !== myColor || this.newlyDrawnCards[myColor].has(index);
       if (this.newlyDrawnCards[myColor].has(index)) {
-        button.classList.add('newly-drawn');
+        button.classList.add("newly-drawn");
         button.title = "Available next turn";
       }
       handElement.appendChild(button);
@@ -795,13 +793,13 @@ const game = {
   },
 
   highlightEmptySquares() {
-    const squares = document.querySelectorAll('.square-55d63');
+    const squares = document.querySelectorAll(".square-55d63");
     squares.forEach(square => {
       const position = square.dataset.square;
       if (position && !this.chess.get(position)) {
-        square.classList.add('highlight');
+        square.classList.add("highlight");
       } else {
-        square.classList.remove('highlight');
+        square.classList.remove("highlight");
       }
     });
   },
@@ -819,10 +817,10 @@ const game = {
     const threatened = [];
     for (let row = 0; row < 8; row++) {
       for (let col = 0; col < 8; col++) {
-        const square = String.fromCharCode('a'.charCodeAt(0) + col) + (row + 1);
+        const square = String.fromCharCode("a".charCodeAt(0) + col) + (row + 1);
         const piece = this.chess.get(square);
         if (piece && piece.color === color) {
-          if (this.isSquareAttacked(square, color === 'w' ? 'b' : 'w')) {
+          if (this.isSquareAttacked(square, color === "w" ? "b" : "w")) {
             threatened.push(square);
           }
         }
@@ -858,8 +856,8 @@ const game = {
   skipTurn(player) {
     this.isSkippingTurn = true;
     this.drawCard(player);
-    const nextPlayer = player === 'white' ? 'black' : 'white';
-    this.chess.load(this.chess.fen().replace(/ w | b /, ` ${nextPlayer === 'white' ? 'w' : 'b'} `));
+    const nextPlayer = player === "white" ? "black" : "white";
+    this.chess.load(this.chess.fen().replace(/ w | b /, ` ${nextPlayer === "white" ? "w" : "b"} `));
     this.clearNewlyDrawnCards(nextPlayer);
     this.board.position(this.chess.fen());
     this.updateStatus();
@@ -868,8 +866,8 @@ const game = {
   },
 
   toggleCardHelp() {
-    const helpSection = document.getElementById('card-help');
-    helpSection.className = helpSection.className === 'hidden' ? '' : 'hidden';
+    const helpSection = document.getElementById("card-help");
+    helpSection.className = helpSection.className === "hidden" ? "" : "hidden";
   },
 
   clearNewlyDrawnCards(player) {
@@ -878,16 +876,16 @@ const game = {
 
   endCurrentTurn() {
     const currentPlayer = this.cardPlayer;
-    const nextPlayer = currentPlayer === 'white' ? 'black' : 'white';
-    this.chess.load(this.chess.fen().replace(/ w | b /, ` ${nextPlayer === 'white' ? 'w' : 'b'} `));
+    const nextPlayer = currentPlayer === "white" ? "black" : "white";
+    this.chess.load(this.chess.fen().replace(/ w | b /, ` ${nextPlayer === "white" ? "w" : "b"} `));
     this.clearNewlyDrawnCards(nextPlayer);
     this.board.position(this.chess.fen());
     playerHand[currentPlayer].splice(this.pendingCard.cardIndex, 1);
     this.updateCardDisplay();
     this.cardPlayedThisTurn = true;
     this.resetCardMode();
-    const squares = document.querySelectorAll('.square-55d63');
-    squares.forEach(sq => sq.classList.remove('highlight'));
+    const squares = document.querySelectorAll(".square-55d63");
+    squares.forEach(sq => sq.classList.remove("highlight"));
     this.updateStatus();
     this.lockBoard();
     this.showMessage(`${nextPlayer}'s turn.`);
@@ -905,7 +903,7 @@ game.init();
 // ------------------------------
 let storedGameId = localStorage.getItem("gameId");
 if (!storedGameId) {
-  fetch("http://147.182.134.57:3000/create-game", {
+  fetch("http://YOUR_SERVER_IP:3000/create-game", {
     method: "POST",
     headers: { "Content-Type": "application/json" }
   })
@@ -922,7 +920,7 @@ if (!storedGameId) {
 }
 
 function loadGame() {
-  fetch(`http://147.182.134.57:3000/game/${gameId}`)
+  fetch(`http://YOUR_SERVER_IP:3000/game/${gameId}`)
     .then(response => response.json())
     .then(data => {
       // Load board state from server
