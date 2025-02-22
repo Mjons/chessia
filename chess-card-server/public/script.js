@@ -21,6 +21,10 @@ if (!myColor) {
   localStorage.setItem("myColor", myColor);
 }
 
+
+
+const socket = io("http://147.182.134.57:3000"); 
+
 // ------------------------------
 // Game Object (with Integrated Updates)
 // ------------------------------
