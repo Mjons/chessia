@@ -33,9 +33,10 @@ mongoose.connect(process.env.MONGO_URI, {
   .catch(err => console.error("❌ MongoDB connection error:", err));
 
 // ------------------------------
-// Game Model (Add "gameCode" field)
+// Game Model
+// ------------------------------
 const GameSchema = new mongoose.Schema({
-  gameCode: { type: String, unique: true, sparse: true },
+  gameCode: { type: String, default: "AutoMatch" },
   boardState: { type: String, default: "start" },
   playerHands: {
     white: { type: Array, default: [] },
@@ -49,44 +50,45 @@ const GameSchema = new mongoose.Schema({
 const Game = mongoose.model("Game", GameSchema);
 
 // ------------------------------
-// POST /join-code
-//   Body: { gameCode: string }
-//   If a game with this code exists, return it. Otherwise create one.
+// Auto-Match Endpoint: GET /match
+// If a waiting game exists, return it. Otherwise, create a new game.
 // ------------------------------
-app.post("/join-code", async (req, res) => {
+let waitingGameId = null; // holds the _id of a waiting game
+
+app.get("/match", async (req, res) => {
   try {
-    const { gameCode } = req.body;
-    if (!gameCode) {
-      return res.status(400).json({ error: "gameCode is required" });
+    if (waitingGameId) {
+      const game = await Game.findById(waitingGameId);
+      if (game) {
+        // Found a waiting game. Clear waitingGameId so that subsequent players create new ones.
+        waitingGameId = null;
+        console.log("Found waiting game:", game._id);
+        return res.json(game);
+      }
     }
-    let game = await Game.findOne({ gameCode });
-    if (!game) {
-      // Create new game doc
-      game = new Game({
-        gameCode,
-        boardState: "start",
-        turn: "white",
-        messages: [`Game created with code: ${gameCode}`]
-      });
-      await game.save();
-      console.log(`Created new game with code: ${gameCode}`);
-    } else {
-      console.log(`Found existing game with code: ${gameCode}`);
-    }
-    res.json(game);
+    // Otherwise, create a new waiting game.
+    const newGame = new Game({
+      boardState: "start",
+      turn: "white",
+      messages: ["Game started (waiting for opponent)."]
+    });
+    await newGame.save();
+    waitingGameId = newGame._id;
+    console.log("Created new waiting game:", newGame._id);
+    res.json(newGame);
   } catch (err) {
-    console.error("Error in /join-code:", err);
+    console.error("Error in /match:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// GET /game/:id -> return game doc
+// ------------------------------
+// GET /game/:id to return game state
+// ------------------------------
 app.get("/game/:id", async (req, res) => {
   try {
     const game = await Game.findById(req.params.id);
-    if (!game) {
-      return res.status(404).json({ error: "Game not found" });
-    }
+    if (!game) return res.status(404).json({ error: "Game not found" });
     res.json(game);
   } catch (err) {
     console.error("Error in /game/:id:", err);
@@ -94,26 +96,33 @@ app.get("/game/:id", async (req, res) => {
   }
 });
 
-// Socket.io
+// ------------------------------
+// Socket.io Integration
+// ------------------------------
 io.on("connection", (socket) => {
   console.log("👤 Player connected:", socket.id);
 
   socket.on("join-game", async (gameId) => {
     if (!gameId) {
-      console.error("join-game with no gameId");
+      console.error("join-game received with no gameId");
       return;
     }
     socket.join(gameId);
     console.log(`📌 Player joined game: ${gameId}`);
+    // Optionally, you can check the number of sockets in this room
+    const clients = await io.in(gameId).allSockets();
+    console.log(`Players in room ${gameId}: ${clients.size}`);
+    // When two or more players are in the room, you could emit an event to enable gameplay.
+    if (clients.size >= 2) {
+      io.to(gameId).emit("match-start", { message: "Opponent joined! Game starting." });
+    }
   });
 
   socket.on("move-piece", async (data) => {
     const { gameId, fen } = data;
     try {
-      // Update the boardState in Mongo
       const game = await Game.findByIdAndUpdate(gameId, { boardState: fen });
       if (game) {
-        // Broadcast updated FEN to all in the room
         io.to(gameId).emit("update-board", fen);
       }
     } catch (err) {
@@ -126,43 +135,15 @@ io.on("connection", (socket) => {
   });
 });
 
-
-// Add this to your server.js (before starting the server)
-let waitingGameId = null; // Global variable to hold a waiting game
-
-app.get("/match", async (req, res) => {
-  try {
-    if (waitingGameId) {
-      // Return the waiting game and mark it as active
-      const game = await Game.findById(waitingGameId);
-      if (game) {
-        // Optionally update game status here
-        waitingGameId = null;
-        return res.json(game);
-      }
-    }
-    // Otherwise, create a new game
-    const newGame = new Game({
-      boardState: "start",
-      playerHands: { white: [], black: [] },
-      turn: "white",
-      messages: ["Game started."],
-      // Optionally, set a game code or status if desired
-    });
-    await newGame.save();
-    waitingGameId = newGame._id;
-    res.json(newGame);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-
-// Health check
+// ------------------------------
+// Health Check
+// ------------------------------
 app.get("/", (req, res) => {
   res.send("✅ Chess server up!");
 });
 
-// Start server
+// ------------------------------
+// Start Server
+// ------------------------------
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));

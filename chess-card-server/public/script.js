@@ -25,32 +25,32 @@ document.addEventListener("DOMContentLoaded", () => {
   // ------------------------------
   // Socket.IO Initialization
   // ------------------------------
-  const socket = io("http://147.182.134.57:3000"); // Replace with your actual server URL/IP
+  const socket = io("http://147.182.134.57:3000"); // Replace with your server's URL/IP
 
-  // Global gameId variable (will be set after joining a match)
+  // Global gameId variable (set after join)
   let gameId = null;
 
   // ------------------------------
   // Join Button Handling for Auto-Match
   // ------------------------------
   const joinButton = document.getElementById("join-button");
-  if (joinButton) {
-    joinButton.addEventListener("click", () => {
-    // Instead of fetching /match, call /join-code
-fetch("http://147.182.134.57:3000/join-code", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ gameCode: "Room123" }) // or your chosen code
-})
-.then(response => response.json())
-.then(gameDoc => {
-  // process gameDoc...
-})
-.catch(err => console.error("Error matching game:", err));
-    });
-  } else {
-    console.error("Join button not found.");
-  }
+  joinButton.addEventListener("click", () => {
+    // Call the /match endpoint to auto-match players.
+    fetch("http://147.182.134.57:3000/match")
+      .then(response => response.json())
+      .then(gameDoc => {
+        gameId = gameDoc._id;
+        localStorage.setItem("gameId", gameId);
+        // Display the room name at the top (if available)
+        const roomNameEl = document.getElementById("room-name");
+        if (roomNameEl) {
+          roomNameEl.textContent = "Room: " + (gameDoc.gameCode || "AutoMatch");
+        }
+        loadGame();
+        joinButton.style.display = "none"; // Hide join button
+      })
+      .catch(err => console.error("Error matching game:", err));
+  });
 
   // ------------------------------
   // Load Game State & Join Room
@@ -59,14 +59,15 @@ fetch("http://147.182.134.57:3000/join-code", {
     fetch(`http://147.182.134.57:3000/game/${gameId}`)
       .then(response => response.json())
       .then(data => {
-        // Load board state from server
+        // Set board state
         game.board.position(data.boardState);
-        // Update only this player's hand from server data
+        // Set current player's hand
         playerHand[myColor] = data.playerHands[myColor] || [];
         game.updateCardDisplay();
       })
       .catch(err => console.error("Error loading game:", err));
-    // Join the game room via socket
+
+    // Join the socket room
     socket.emit("join-game", gameId);
   }
 
@@ -77,12 +78,6 @@ fetch("http://147.182.134.57:3000/join-code", {
   socket.on("update-board", (fen) => {
     game.board.position(fen);
   });
-
-  // (Optional) Utility function to update hand display if needed
-  function updateHandDisplay(newHands) {
-    playerHand[myColor] = newHands[myColor];
-    game.updateCardDisplay();
-  }
 
   // ------------------------------
   // Game Object (Client-Side)
@@ -103,7 +98,7 @@ fetch("http://147.182.134.57:3000/join-code", {
     previousTurn: null,
     cardPlayedThisTurn: false,
     isSkippingTurn: false,
-    waitingForOpponent: true, // Initially waiting until match starts
+    waitingForOpponent: true, // Initially disable moves until match starts
     newlyDrawnCards: {
       white: new Set(),
       black: new Set()
@@ -115,7 +110,7 @@ fetch("http://147.182.134.57:3000/join-code", {
         draggable: true,
         position: "start",
         pieceTheme: "img/chesspieces/custom/{piece}.png",
-        orientation: myColor, // Board oriented for current player
+        orientation: myColor,
         onDragStart: (source, piece) => {
           if (this.waitingForOpponent) {
             this.showMessage("Waiting for opponent to join...");
@@ -218,7 +213,6 @@ fetch("http://147.182.134.57:3000/join-code", {
     onDragStart(source, piece) {
       if (this.cardMode) return false;
       if (this.chess.game_over()) return false;
-      // Only allow moving your own pieces on your turn
       if ((this.chess.turn() === "w" && piece.search(/^b/) !== -1) ||
           (this.chess.turn() === "b" && piece.search(/^w/) !== -1)) {
         return false;
@@ -752,7 +746,6 @@ fetch("http://147.182.134.57:3000/join-code", {
     },
 
     updateCardDisplay() {
-      // Only show current player's hand
       if (myColor === "white") {
         document.getElementById("white-hand").style.display = "block";
         document.getElementById("black-hand").style.display = "none";
@@ -900,12 +893,12 @@ fetch("http://147.182.134.57:3000/join-code", {
   // Server-Side Integration (Client-Side)
   // ------------------------------
   let storedGameId = localStorage.getItem("gameId");
-  if (!storedGameId) {
-    console.log("Waiting for user to join a match via the join button...");
-  } else {
+  if (storedGameId) {
     gameId = storedGameId;
     loadGame();
     socket.emit("join-game", gameId);
+  } else {
+    console.log("Waiting for user to join a match via the join button...");
   }
 
   function sendMove(fen) {
