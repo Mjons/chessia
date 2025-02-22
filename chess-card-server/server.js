@@ -5,7 +5,7 @@ const http = require("http");
 const { Server } = require("socket.io");
 const mongoose = require("mongoose");
 const cors = require("cors");
-const { Chess } = require("chess.js");
+const Chess = require('chess.js').Chess;
 
 // Initialize Express
 const app = express();
@@ -149,14 +149,12 @@ io.on("connection", (socket) => {
         return;
       }
 
-      // Create new Chess instance with proper instantiation
+      // Create a new Chess instance
       const chess = new Chess();
       
       // Load the FEN position
-      try {
-        chess.load(fen);
-      } catch (err) {
-        console.error("Invalid FEN:", err);
+      if (!chess.load(fen)) {
+        console.error("Invalid FEN:", fen);
         socket.emit("error", "Invalid move");
         return;
       }
