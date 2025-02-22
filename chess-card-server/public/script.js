@@ -76,12 +76,15 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   socket.on("update-board", (fen) => {
+    console.log("Received board update. Current color:", myColor);
+    console.log("New board state:", fen);
     game.chess.load(fen);
     game.board.position(fen);
     game.updateStatus();
     
     // Clear any card modes when receiving opponent's move
-    if (game.chess.turn() === (myColor === 'white' ? 'b' : 'w')) {
+    const currentTurn = game.chess.turn() === 'w' ? 'white' : 'black';
+    if (currentTurn !== myColor) {
       game.resetCardMode();
     }
   });
@@ -127,6 +130,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     init() {
       console.log("Initializing chessboard...");
+      console.log("Player color:", myColor);
       this.board = Chessboard("board", {
         draggable: true,
         position: "start",
@@ -229,21 +233,21 @@ document.addEventListener("DOMContentLoaded", () => {
       if (this.cardMode) return false;
       if (this.chess.game_over()) return false;
       
-      // Check if it's this player's turn
+      // Fix the turn validation
       const currentTurn = this.chess.turn() === 'w' ? 'white' : 'black';
       if (currentTurn !== myColor) {
         this.showMessage("Not your turn!");
         return false;
       }
 
-      // Check if piece belongs to the player
-      if ((myColor === 'white' && piece.search(/^b/) !== -1) ||
-          (myColor === 'black' && piece.search(/^w/) !== -1)) {
+      // Fix piece color validation
+      const pieceColor = piece.charAt(0);
+      if ((myColor === 'white' && pieceColor === 'b') ||
+          (myColor === 'black' && pieceColor === 'w')) {
         this.showMessage("Can't move opponent's pieces!");
         return false;
       }
 
-      // Check if waiting for opponent
       if (this.waitingForOpponent) {
         this.showMessage("Waiting for opponent to join...");
         return false;
@@ -407,7 +411,9 @@ document.addEventListener("DOMContentLoaded", () => {
     },
 
     handleTeleportClick(event) {
-      if (this.chess.turn() === 'w' ? 'white' : 'black' !== myColor) {
+      // Fix the turn validation comparison
+      const currentTurn = this.chess.turn() === 'w' ? 'white' : 'black';
+      if (currentTurn !== myColor) {
         this.showMessage("Not your turn!");
         return;
       }
@@ -581,7 +587,9 @@ document.addEventListener("DOMContentLoaded", () => {
     },
 
     handleSwapClick(event) {
-      if (this.chess.turn() === 'w' ? 'white' : 'black' !== myColor) {
+      // Fix the turn validation comparison
+      const currentTurn = this.chess.turn() === 'w' ? 'white' : 'black';
+      if (currentTurn !== myColor) {
         this.showMessage("Not your turn!");
         return;
       }
@@ -963,10 +971,6 @@ document.addEventListener("DOMContentLoaded", () => {
   function sendMove(fen) {
     socket.emit("move-piece", { gameId, fen });
   }
-
-  socket.on("update-board", (fen) => {
-    game.board.position(fen);
-  });
 
   function updateHandDisplay(newHands) {
     playerHand[myColor] = newHands[myColor];

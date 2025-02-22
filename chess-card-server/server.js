@@ -46,7 +46,9 @@ const GameSchema = new mongoose.Schema({
   turn: { type: String, default: "white" },
   messages: { type: Array, default: [] },
   createdAt: { type: Date, default: Date.now },
-  players: { type: Number, default: 0 }
+  players: { type: Number, default: 0 },
+  whitePlayer: { type: String, default: null },
+  blackPlayer: { type: String, default: null }
 });
 
 const Game = mongoose.model("Game", GameSchema);
@@ -118,14 +120,35 @@ io.on("connection", (socket) => {
 
       socket.join(gameId);
       
-      // Assign player color based on order of joining
+      // Get all clients in the room
       const clients = await io.in(gameId).allSockets();
-      socket.playerColor = clients.size === 1 ? 'white' : 'black';
       
-      console.log(`📌 Player joined game: ${gameId} as ${socket.playerColor}`);
-      
-      // Update game with player count
-      await Game.findByIdAndUpdate(gameId, { players: clients.size });
+      // Assign and store player color
+      if (clients.size <= 2) {
+        // First player gets white, second gets black
+        socket.playerColor = clients.size === 1 ? 'white' : 'black';
+        
+        // Store color in game document
+        const update = clients.size === 1 
+          ? { whitePlayer: socket.id }
+          : { blackPlayer: socket.id };
+        await Game.findByIdAndUpdate(gameId, {
+          ...update,
+          players: clients.size
+        });
+
+        // Inform client of their color
+        socket.emit("color-assignment", {
+          color: socket.playerColor,
+          message: `You are playing as ${socket.playerColor}`
+        });
+        
+        console.log(`📌 Player ${socket.id} joined game ${gameId} as ${socket.playerColor}`);
+      } else {
+        socket.emit("error", "Game is full");
+        socket.disconnect();
+        return;
+      }
       
       if (clients.size >= 2) {
         io.to(gameId).emit("match-start", { 
@@ -150,10 +173,24 @@ io.on("connection", (socket) => {
       // Validate that it's the player's turn
       const chess = new Chess(game.boardState);
       const currentTurn = chess.turn() === 'w' ? 'white' : 'black';
-      const playerColor = socket.playerColor; // You'll need to set this when player joins
+      
+      // Verify the player's color matches their socket
+      if (!socket.playerColor) {
+        socket.emit("error", "Player color not assigned");
+        return;
+      }
 
-      if (currentTurn !== playerColor) {
+      if (currentTurn !== socket.playerColor) {
         socket.emit("error", "Not your turn");
+        return;
+      }
+
+      // Validate the move is legal
+      const oldFen = chess.fen();
+      try {
+        chess.load(fen);
+      } catch (e) {
+        socket.emit("error", "Invalid move");
         return;
       }
 
@@ -173,8 +210,23 @@ io.on("connection", (socket) => {
     try {
       for (const room of socket.rooms) {
         if (room !== socket.id) {
-          const clients = await io.in(room).allSockets();
-          await Game.findByIdAndUpdate(room, { players: clients.size - 1 });
+          // Update player count and remove player color assignment
+          const game = await Game.findById(room);
+          if (game) {
+            const update = {};
+            if (game.whitePlayer === socket.id) update.whitePlayer = null;
+            if (game.blackPlayer === socket.id) update.blackPlayer = null;
+            
+            const clients = await io.in(room).allSockets();
+            update.players = clients.size - 1;
+            
+            await Game.findByIdAndUpdate(room, update);
+            
+            // Notify remaining player
+            io.to(room).emit("opponent-disconnected", {
+              message: "Opponent disconnected"
+            });
+          }
         }
       }
     } catch (err) {
