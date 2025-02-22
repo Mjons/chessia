@@ -22,8 +22,8 @@ app.use(express.json()); // Middleware for JSON parsing
 mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true
-}).then(() => console.log("MongoDB connected"))
-  .catch(err => console.error("MongoDB connection error:", err));
+}).then(() => console.log("✅ MongoDB connected"))
+  .catch(err => console.error("❌ MongoDB connection error:", err));
 
 // Game model
 const GameSchema = new mongoose.Schema({
@@ -39,7 +39,12 @@ const GameSchema = new mongoose.Schema({
 
 const Game = mongoose.model("Game", GameSchema);
 
-// Create a new game
+// ✅ **Default Route for Server Health Check**
+app.get("/", (req, res) => {
+  res.send("✅ Chess game server is running!");
+});
+
+// 🎲 **Create a new game**
 app.post("/create-game", async (req, res) => {
   try {
     const newGame = new Game({
@@ -56,7 +61,7 @@ app.post("/create-game", async (req, res) => {
   }
 });
 
-// Get game state
+// 📜 **Get game state**
 app.get("/game/:id", async (req, res) => {
   try {
     const game = await Game.findById(req.params.id);
@@ -68,13 +73,13 @@ app.get("/game/:id", async (req, res) => {
   }
 });
 
-// WebSockets for real-time updates
+// 🔄 **WebSockets for real-time updates**
 io.on("connection", (socket) => {
-  console.log("A player connected:", socket.id);
+  console.log(`👤 Player connected: ${socket.id}`);
 
   socket.on("join-game", async (gameId) => {
     socket.join(gameId);
-    console.log(`Player joined game: ${gameId}`);
+    console.log(`📌 Player joined game: ${gameId}`);
   });
 
   socket.on("move-piece", async (data) => {
@@ -87,10 +92,10 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
-    console.log("A player disconnected:", socket.id);
+    console.log(`🚪 Player disconnected: ${socket.id}`);
   });
 });
 
-// Start server
+// 🛠 **Start server**
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
