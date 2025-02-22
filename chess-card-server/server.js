@@ -75,9 +75,16 @@ io.on("connection", (socket) => {
   console.log("👤 A player connected:", socket.id);
 
   socket.on("join-game", async (gameId) => {
+    if (!gameId) return;
     socket.join(gameId);
-    console.log(`📌 Player joined game: ${gameId}`);
+    // Get number of clients in the room:
+    const clients = io.sockets.adapter.rooms.get(gameId);
+    const numClients = clients ? clients.size : 0;
+    // Emit the updated player count to everyone in the room
+    io.to(gameId).emit("player-count", numClients);
+    console.log(`Player joined game: ${gameId} (Total: ${numClients})`);
   });
+  
 
   socket.on("move-piece", async (data) => {
     const { gameId, fen } = data;

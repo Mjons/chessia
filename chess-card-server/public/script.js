@@ -24,10 +24,10 @@ if (!myColor) {
 // ------------------------------
 // Socket.IO Initialization
 // ------------------------------
-const socket = io("http://147.182.134.57:3000"); // Replace with your server URL/IP
+const socket = io("http://147.182.134.57:3000"); // Replace with your actual server IP/domain
 
 // ------------------------------
-// Server-Side Integration Block (Client-Side)
+// Server-Side Integration (Client-Side)
 // ------------------------------
 let gameId = localStorage.getItem("gameId");
 if (!gameId) {
@@ -64,10 +64,24 @@ function sendMove(fen) {
   socket.emit("move-piece", { gameId, fen });
 }
 
+// Listen for player count updates
+socket.on("player-count", (count) => {
+  console.log("Players in room:", count);
+  if (count >= 2) {
+    game.waitingForOpponent = false;
+    game.showMessage("Opponent has joined! You can now play.");
+  } else {
+    game.waitingForOpponent = true;
+    game.showMessage("Waiting for opponent to join...");
+  }
+});
+
+// Listen for board updates from the server
 socket.on("update-board", (fen) => {
   game.board.position(fen);
 });
 
+// Utility function to update hand display if needed
 function updateHandDisplay(newHands) {
   playerHand[myColor] = newHands[myColor];
   game.updateCardDisplay();
@@ -92,7 +106,7 @@ const game = {
   previousTurn: null,
   cardPlayedThisTurn: false,
   isSkippingTurn: false,
-  waitingForOpponent: true, // Initially, disable moves until an opponent joins
+  waitingForOpponent: true, // Initially waiting for an opponent
   newlyDrawnCards: {
     white: new Set(),
     black: new Set()
@@ -121,11 +135,7 @@ const game = {
     this.updateTokens();
     this.updateCardDisplay();
 
-    // When an opponent joins, the server should trigger an event to set waitingForOpponent = false.
-    // For now, you can test by manually setting:
-    // this.waitingForOpponent = false;
-
-    // Hide opponent's cards so only your own hand is visible
+    // Hide opponent's cards: show only my hand
     if (myColor === "white") {
       document.getElementById("black-hand").style.display = "none";
       document.getElementById("white-hand").style.display = "block";
@@ -134,7 +144,7 @@ const game = {
       document.getElementById("black-hand").style.display = "block";
     }
 
-    // Add single click listeners for card actions
+    // Add single click listener for card actions
     const squares = document.querySelectorAll('.square-55d63');
     squares.forEach(square => {
       square.addEventListener('click', (e) => {
@@ -179,26 +189,26 @@ const game = {
         <div class="help-section">
             <h3>Card Effects</h3>
             <ul>
-                <li><strong>Teleportation:</strong> Move any of your pieces to any empty square. Ends your turn.</li>
-                <li><strong>Shield:</strong> Protect one of your pieces from capture until your next turn. Does NOT end your turn.</li>
-                <li><strong>Knight's Leap:</strong> Move any piece as if it were a knight (L-shape). Can capture pieces. Ends your turn.</li>
-                <li><strong>Swap Sacrifice:</strong> Swap the positions of any two of your pieces. Ends your turn.</li>
+                <li><strong>Teleportation:</strong> Move any piece to an empty square. Ends your turn.</li>
+                <li><strong>Shield:</strong> Protect one piece from capture until your next turn.</li>
+                <li><strong>Knight's Leap:</strong> Move a piece like a knight. Can capture pieces. Ends your turn.</li>
+                <li><strong>Swap Sacrifice:</strong> Swap positions of two pieces. Ends your turn.</li>
             </ul>
         </div>
         <div class="help-section">
             <h3>How to Draw Cards</h3>
-            <p>You can draw a card (up to 3 cards max) by performing any of these actions:</p>
+            <p>You can draw a card (up to 3 max) by:</p>
             <ul>
-                <li><strong>Check:</strong> Putting your opponent's king in check</li>
-                <li><strong>Promotion:</strong> Promoting a pawn to a stronger piece</li>
-                <li><strong>Castling:</strong> Performing a kingside or queenside castle</li>
-                <li><strong>Capture:</strong> Taking an opponent's piece</li>
-                <li><strong>Defense:</strong> Moving a piece to defend a threatened piece</li>
-                <li><strong>Fork:</strong> Attacking multiple pieces at once</li>
-                <li><strong>Pin:</strong> Pinning an opponent's piece against their king</li>
-                <li><strong>Skip Turn:</strong> Choose to skip your turn instead of moving</li>
+                <li>Putting opponent's king in check</li>
+                <li>Promoting a pawn</li>
+                <li>Castling</li>
+                <li>Capturing a piece</li>
+                <li>Defending a threatened piece</li>
+                <li>Creating a fork</li>
+                <li>Pinning an opponent's piece</li>
+                <li>Skipping your turn</li>
             </ul>
-            <p><em>Note: You can only hold up to 3 cards at a time.</em></p>
+            <p><em>You can hold up to 3 cards at a time.</em></p>
         </div>
     `;
 
@@ -746,6 +756,7 @@ const game = {
   },
 
   updateCardDisplay() {
+    // Only show current player's hand
     if (myColor === "white") {
       document.getElementById("white-hand").style.display = "block";
       document.getElementById("black-hand").style.display = "none";
@@ -890,10 +901,10 @@ const game = {
 game.init();
 
 // ------------------------------
-// Server-Side Integration Block (Client-Side)
+// Server-Side Integration (Client-Side)
 // ------------------------------
-let gameIdFromStorage = localStorage.getItem("gameId");
-if (!gameIdFromStorage) {
+let storedGameId = localStorage.getItem("gameId");
+if (!storedGameId) {
   fetch("http://147.182.134.57:3000/create-game", {
     method: "POST",
     headers: { "Content-Type": "application/json" }
@@ -906,7 +917,7 @@ if (!gameIdFromStorage) {
     })
     .catch(err => console.error("Error creating game:", err));
 } else {
-  gameId = gameIdFromStorage;
+  gameId = storedGameId;
   loadGame();
 }
 
