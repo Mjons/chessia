@@ -40,7 +40,8 @@ const GameSchema = new mongoose.Schema({
   boardState: { type: String, default: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" },
   whitePlayer: String,
   blackPlayer: String,
-  players: { type: Number, default: 0 }
+  players: { type: Number, default: 0 },
+  currentTurn: { type: String, default: 'white' }
 });
 
 const Game = mongoose.model("Game", GameSchema);
@@ -148,37 +149,41 @@ io.on("connection", (socket) => {
         return;
       }
 
-      // Create chess instance with current game state
+      // Create new Chess instance with proper instantiation
       const chess = new Chess();
       
-      // Validate the new position
+      // Load the FEN position
       try {
         chess.load(fen);
       } catch (err) {
-        socket.emit("error", "Invalid position");
+        console.error("Invalid FEN:", err);
+        socket.emit("error", "Invalid move");
         return;
       }
 
-      // Get the current turn color
+      // Determine the current turn based on FEN
       const currentTurn = chess.turn() === 'w' ? 'white' : 'black';
       
-      // Validate it's the player's turn
-      if (currentTurn !== socket.playerColor) {
+      // Verify it's the player's turn
+      if (socket.playerColor !== currentTurn) {
+        console.log(`Invalid turn: ${socket.playerColor} tried to move on ${currentTurn}'s turn`);
         socket.emit("error", "Not your turn");
         return;
       }
 
       // Update game state
       game.boardState = fen;
+      game.currentTurn = chess.turn() === 'w' ? 'black' : 'white';  // Switch turn
       await game.save();
-      
-      // Broadcast move to all players
-      io.to(gameId).emit("update-board", fen);
-      
-      // Log the move for debugging
-      console.log(`Move made by ${socket.playerColor}, new FEN: ${fen}`);
-      console.log(`Next turn: ${chess.turn() === 'w' ? 'white' : 'black'}`);
-      
+
+      // Broadcast the updated state to all players
+      io.to(gameId).emit("update-board", {
+        fen: fen,
+        currentTurn: game.currentTurn
+      });
+
+      console.log(`Move made by ${socket.playerColor}, next turn: ${game.currentTurn}`);
+
     } catch (err) {
       console.error("Move error:", err);
       socket.emit("error", "Invalid move");
