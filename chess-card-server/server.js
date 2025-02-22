@@ -1,41 +1,49 @@
-require("dotenv").config();
-const express = require("express");
-const path = require("path"); // Add path module
-const http = require("http");
-const { Server } = require("socket.io");
-const mongoose = require("mongoose");
-const cors = require("cors");
+// ------------------------------
+// SERVER-SIDE Integration Block
+// ------------------------------
+const socket = io("http://YOUR_SERVER_IP:3000"); // Update this URL for your production server
 
-// Initialize Express app
-const app = express();
-const server = http.createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: "*", // Allow all frontend connections
-    methods: ["GET", "POST"],
-  },
-});
-
-app.use(cors());
-app.use(express.json()); // Middleware for JSON parsing
-
-// ✅ Move `express.static()` after `app` initialization
-app.use(express.static(path.join(__dirname, "public")));
-
-// MongoDB Connection
-mongoose
-  .connect(process.env.MONGO_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
+let gameId = localStorage.getItem("gameId");
+if (!gameId) {
+  fetch("http://YOUR_SERVER_IP:3000/create-game", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" }
   })
-  .then(() => console.log("✅ MongoDB connected"))
-  .catch((err) => console.error("❌ MongoDB connection error:", err));
+    .then(response => response.json())
+    .then(data => {
+      gameId = data._id;
+      localStorage.setItem("gameId", gameId);
+      loadGame();
+    })
+    .catch(err => console.error("Error creating game:", err));
+} else {
+  loadGame();
+}
 
-// ✅ Default route for health check
-app.get("/", (req, res) => {
-  res.send("✅ Chess game server is running!");
+function loadGame() {
+  fetch(`http://YOUR_SERVER_IP:3000/game/${gameId}`)
+    .then(response => response.json())
+    .then(data => {
+      // Load board state from server
+      game.board.position(data.boardState);
+      // Only update this player's hand from server data
+      playerHand[myColor] = data.playerHands[myColor] || [];
+      game.updateCardDisplay();
+    })
+    .catch(err => console.error("Error loading game:", err));
+  socket.emit("join-game", gameId);
+}
+
+function sendMove(fen) {
+  socket.emit("move-piece", { gameId, fen });
+}
+
+socket.on("update-board", (fen) => {
+  game.board.position(fen);
 });
 
-// ✅ Start server
-const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+// Utility function to update hand display if needed
+function updateHandDisplay(newHands) {
+  playerHand[myColor] = newHands[myColor];
+  game.updateCardDisplay();
+}

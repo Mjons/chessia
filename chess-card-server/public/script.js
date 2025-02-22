@@ -13,6 +13,14 @@ const playerHand = {
   black: []
 };
 
+// Determine player's color (persisted in localStorage)
+let myColor = localStorage.getItem("myColor");
+if (!myColor) {
+  myColor = prompt("Choose your color (white/black):", "white").toLowerCase();
+  if (myColor !== "white" && myColor !== "black") myColor = "white";
+  localStorage.setItem("myColor", myColor);
+}
+
 // ------------------------------
 // Game Object (with Integrated Updates)
 // ------------------------------
@@ -32,6 +40,7 @@ const game = {
   previousTurn: null,
   cardPlayedThisTurn: false,
   isSkippingTurn: false,
+  waitingForOpponent: true, // New flag: disable moves until both players are present
   newlyDrawnCards: {
     white: new Set(),
     black: new Set()
@@ -43,7 +52,15 @@ const game = {
       draggable: true,
       position: 'start',
       pieceTheme: 'img/chesspieces/custom/{piece}.png',
-      onDragStart: this.onDragStart.bind(this),
+      orientation: myColor, // Orient board for current player
+      // Wrap onDragStart to disable moves if waiting for opponent
+      onDragStart: (source, piece) => {
+        if (this.waitingForOpponent) {
+          this.showMessage("Waiting for opponent to join...");
+          return false;
+        }
+        return this.onDragStart(source, piece);
+      },
       onDrop: this.onDrop.bind(this),
       onMouseoverSquare: this.onMouseoverSquare.bind(this),
       onMouseoutSquare: this.onMouseoutSquare.bind(this)
@@ -53,7 +70,16 @@ const game = {
     this.updateTokens();
     this.updateCardDisplay();
 
-    // Add single click listener for all card modes
+    // Hide opponent's cards: show only my hand
+    if (myColor === "white") {
+      document.getElementById("black-hand").style.display = "none";
+      document.getElementById("white-hand").style.display = "block";
+    } else {
+      document.getElementById("white-hand").style.display = "none";
+      document.getElementById("black-hand").style.display = "block";
+    }
+
+    // Add single click listener for card actions
     const squares = document.querySelectorAll('.square-55d63');
     squares.forEach(square => {
       square.addEventListener('click', (e) => {
@@ -98,8 +124,8 @@ const game = {
         <div class="help-section">
             <h3>Card Effects</h3>
             <ul>
-                <li><strong>Teleportation:</strong> Move any of your pieces to any empty square on the board. Ends your turn.</li>
-                <li><strong>Shield:</strong> Protect one of your pieces from capture until your next turn begins. Does NOT end your turn.</li>
+                <li><strong>Teleportation:</strong> Move any of your pieces to any empty square. Ends your turn.</li>
+                <li><strong>Shield:</strong> Protect one of your pieces from capture until your next turn. Does NOT end your turn.</li>
                 <li><strong>Knight's Leap:</strong> Move any piece as if it were a knight (L-shape). Can capture pieces. Ends your turn.</li>
                 <li><strong>Swap Sacrifice:</strong> Swap the positions of any two of your pieces. Ends your turn.</li>
             </ul>
@@ -133,6 +159,7 @@ const game = {
   onDragStart(source, piece) {
     if (this.cardMode) return false;
     if (this.chess.game_over()) return false;
+    // Only allow moving your own pieces on your turn
     if ((this.chess.turn() === 'w' && piece.search(/^b/) !== -1) ||
         (this.chess.turn() === 'b' && piece.search(/^w/) !== -1)) {
       return false;
@@ -166,7 +193,7 @@ const game = {
     this.board.position(this.chess.fen());
     this.updateStatus();
     this.updateCardDisplay();
-
+  
     if (move !== null) {
       const nextPlayer = this.chess.turn() === 'w' ? 'white' : 'black';
       this.clearNewlyDrawnCards(nextPlayer);
@@ -179,20 +206,17 @@ const game = {
   drawCard(player) {
     if (cardDeck.length === 0) return;
     
-    const lastMove = this.chess.history({verbose: true}).pop();
+    const lastMove = this.chess.history({ verbose: true }).pop();
     if (!lastMove && !this.isSkippingTurn) return;
     
     let shouldDrawCard = false;
     const reasons = [];
-
-    // Skip turn condition
+  
     if (this.isSkippingTurn) {
       shouldDrawCard = true;
       reasons.push("skipping turn");
-      this.isSkippingTurn = false; // Reset the flag
-    }
-    // Only check other conditions if not skipping turn
-    else if (lastMove) {
+      this.isSkippingTurn = false;
+    } else if (lastMove) {
       if (this.chess.in_check()) {
         shouldDrawCard = true;
         reasons.push("putting opponent in check");
@@ -222,7 +246,7 @@ const game = {
         reasons.push("pinning an opponent's piece");
       }
     }
-
+  
     if (shouldDrawCard && playerHand[player].length < 3) {
       const randomIndex = Math.floor(Math.random() * cardDeck.length);
       const card = cardDeck[randomIndex];
@@ -246,7 +270,7 @@ const game = {
     this.pendingCard = { player, cardIndex };
     const card = playerHand[player][cardIndex];
     this.cardPlayer = player;
-
+  
     const currentTurn = this.chess.turn() === 'w' ? 'white' : 'black';
     if (player !== currentTurn) {
       this.showMessage(`You can only play cards during your turn! Current turn: ${currentTurn}`);
@@ -256,7 +280,7 @@ const game = {
       this.showMessage("Newly drawn cards can't be used until your next turn!");
       return;
     }
-
+  
     switch (card.effect) {
       case "moveAnyPieceAnywhere":
         this.showMessage(`${player}'s turn: Teleportation activated! Click a piece to teleport, then a destination.`);
@@ -283,19 +307,18 @@ const game = {
       document.getElementById('cancel-card-action').style.display = 'block';
     }
   },
-
-  // New Function: Cancel Card Action
+  
   cancelCardAction() {
     this.resetCardMode();
     this.showMessage("Card action canceled. You can choose another card or make a normal move.");
   },
-
+  
   enableTeleportation(player) {
     this.cardMode = 'teleport';
     this.selectedPiece = null;
     this.highlightPlayerPieces(player);
   },
-
+  
   showMessage(message) {
     console.log(message);
     const messageLog = document.getElementById('message-log');
@@ -311,7 +334,7 @@ const game = {
       messageLog.removeChild(messageLog.lastChild);
     }
   },
-
+  
   handleTeleportClick(event) {
     const square = event.target.closest('.square-55d63');
     if (!square) return;
@@ -342,7 +365,7 @@ const game = {
       }
     }
   },
-
+  
   teleportPiece(player, source, target) {
     const piece = this.chess.get(source);
     if (!piece) return false;
@@ -361,18 +384,17 @@ const game = {
     } else {
       document.getElementById('move-sound').play();
       console.log(`${player} teleported ${piece.type} from ${source} to ${target}. Turn ends.`);
-      // Broadcast update after teleport
       sendMove(this.chess.fen());
       return true;
     }
   },
-
+  
   enableShield(player) {
     this.cardMode = 'shield';
     this.selectedPiece = null;
     this.highlightPlayerPieces(player);
   },
-
+  
   handleShieldClick(player, event) {
     const square = event.target.closest('.square-55d63');
     if (!square) return;
@@ -384,13 +406,13 @@ const game = {
       this.showMessage("You can only shield your own pieces!");
     }
   },
-
+  
   enableKnightsLeap(player) {
     this.cardMode = 'knight';
     this.selectedPiece = null;
     this.highlightPlayerPieces(player);
   },
-
+  
   handleKnightsLeapClick(player, event) {
     const square = event.target.closest('.square-55d63');
     if (!square) return;
@@ -425,7 +447,7 @@ const game = {
       }
     }
   },
-
+  
   moveLikeKnight(player, source, target) {
     const piece = this.chess.get(source);
     if (!piece) return false;
@@ -455,19 +477,18 @@ const game = {
       const newFen = this.chess.fen().replace(/ w | b /, ` ${nextPlayer === 'white' ? 'w' : 'b'} `);
       this.chess.load(newFen);
       this.showMessage(`${player} moved ${piece.type} like a knight from ${source} to ${target}. ${nextPlayer}'s turn.`);
-      // Broadcast update after knight move
       sendMove(this.chess.fen());
       return true;
     }
   },
-
+  
   enableSwap(player) {
     this.cardMode = 'swap';
     this.selectedPiece = null;
     this.swapFirstPiece = null;
     this.highlightPlayerPieces(player);
   },
-
+  
   handleSwapClick(event) {
     const square = event.target.closest('.square-55d63');
     if (!square) return;
@@ -497,7 +518,7 @@ const game = {
       }
     }
   },
-
+  
   swapPieces(player, source, target) {
     const piece1 = this.chess.get(source);
     const piece2 = this.chess.get(target);
@@ -522,7 +543,6 @@ const game = {
       const newFen = this.chess.fen().replace(/ w | b /, ` ${nextPlayer === 'white' ? 'w' : 'b'} `);
       this.chess.load(newFen);
       this.showMessage(`${player} swapped ${piece1.type} at ${source} with ${piece2.type} at ${target}. ${nextPlayer}'s turn.`);
-      // Broadcast update after swap
       sendMove(this.chess.fen());
       return true;
     } else {
@@ -532,7 +552,7 @@ const game = {
       return false;
     }
   },
-
+  
   applyShield(player, square) {
     const piece = this.chess.get(square);
     if (piece && piece.color === (player === 'white' ? 'w' : 'b')) {
@@ -559,10 +579,9 @@ const game = {
       this.resetCardMode();
       this.board.position(this.chess.fen());
       this.updateStatus();
-      // Shield action may not end the turn so we might not broadcast immediately
     }
   },
-
+  
   isKnightMove(source, target) {
     const sourceX = source.charCodeAt(0) - 'a'.charCodeAt(0);
     const sourceY = parseInt(source[1]) - 1;
@@ -572,20 +591,20 @@ const game = {
     const dy = Math.abs(targetY - sourceY);
     return (dx === 2 && dy === 1) || (dx === 1 && dy === 2);
   },
-
+  
   advanceTurn() {
     const currentTurn = this.chess.turn();
     this.chess.load(this.chess.fen(), true);
     this.chess.load(`${this.chess.fen().split(' ')[0]} ${currentTurn === 'w' ? 'b' : 'w'} ${this.chess.fen().split(' ')[2]} ${this.chess.fen().split(' ')[3]} ${this.chess.fen().split(' ')[4]} ${parseInt(this.chess.fen().split(' ')[5]) + 1}`, true);
   },
-
+  
   lockBoard() {
     this.board.draggable = false;
     setTimeout(() => {
       this.board.draggable = true;
     }, 100);
   },
-
+  
   highlightPlayerPieces(player) {
     const squares = document.querySelectorAll('.square-55d63');
     squares.forEach(square => {
@@ -597,12 +616,12 @@ const game = {
       }
     });
   },
-
+  
   highlightAllSquares() {
     const squares = document.querySelectorAll('.square-55d63');
     squares.forEach(square => square.classList.add('highlight'));
   },
-
+  
   highlightKnightMoves(source) {
     const sourceX = source.charCodeAt(0) - 'a'.charCodeAt(0);
     const sourceY = parseInt(source[1]) - 1;
@@ -624,7 +643,7 @@ const game = {
       }
     });
   },
-
+  
   resetCardMode() {
     this.cardMode = null;
     this.cardPlayer = null;
@@ -637,19 +656,19 @@ const game = {
     this.board.draggable = true;
     document.getElementById('cancel-card-action').style.display = 'none';
   },
-
+  
   onMouseoverSquare(square, piece) {
     if (this.cardMode === 'shield' && piece) {
       document.querySelector(`.square-${square}`).classList.add('highlight');
     }
   },
-
+  
   onMouseoutSquare(square, piece) {
     if (this.cardMode === 'shield' && this.protectedPiece !== square) {
       document.querySelector(`.square-${square}`).classList.remove('highlight');
     }
   },
-
+  
   updateStatus() {
     let status = '';
     if (this.chess.in_checkmate()) {
@@ -681,42 +700,37 @@ const game = {
     }
     this.previousTurn = currentTurn;
   },
-
+  
   updateTokens() {
     document.getElementById('white-tokens').textContent = `White: ${this.players.white.tokens} tokens`;
     document.getElementById('black-tokens').textContent = `Black: ${this.players.black.tokens} tokens`;
   },
-
+  
   updateCardDisplay() {
-    const whiteHandElement = document.getElementById('white-hand');
-    const blackHandElement = document.getElementById('black-hand');
-    whiteHandElement.innerHTML = '';
-    blackHandElement.innerHTML = '';
-    const currentTurn = this.chess.turn() === 'w' ? 'white' : 'black';
-    playerHand.white.forEach((card, index) => {
+    // Only show current player's hand
+    if(myColor === "white"){
+      document.getElementById("white-hand").style.display = "block";
+      document.getElementById("black-hand").style.display = "none";
+    } else {
+      document.getElementById("black-hand").style.display = "block";
+      document.getElementById("white-hand").style.display = "none";
+    }
+    const handElement = myColor === "white" ? document.getElementById('white-hand') : document.getElementById('black-hand');
+    handElement.innerHTML = '';
+    playerHand[myColor].forEach((card, index) => {
       const button = document.createElement('button');
       button.textContent = card.name;
-      button.onclick = () => this.playCard('white', index);
-      button.disabled = currentTurn !== 'white' || this.newlyDrawnCards.white.has(index);
-      if (this.newlyDrawnCards.white.has(index)) {
+      button.onclick = () => this.playCard(myColor, index);
+      const currentTurn = this.chess.turn() === 'w' ? 'white' : 'black';
+      button.disabled = currentTurn !== myColor || this.newlyDrawnCards[myColor].has(index);
+      if (this.newlyDrawnCards[myColor].has(index)) {
         button.classList.add('newly-drawn');
         button.title = "Available next turn";
       }
-      whiteHandElement.appendChild(button);
-    });
-    playerHand.black.forEach((card, index) => {
-      const button = document.createElement('button');
-      button.textContent = card.name;
-      button.onclick = () => this.playCard('black', index);
-      button.disabled = currentTurn !== 'black' || this.newlyDrawnCards.black.has(index);
-      if (this.newlyDrawnCards.black.has(index)) {
-        button.classList.add('newly-drawn');
-        button.title = "Available next turn";
-      }
-      blackHandElement.appendChild(button);
+      handElement.appendChild(button);
     });
   },
-
+  
   completeCardAction() {
     if (this.pendingCard) {
       playerHand[this.pendingCard.player].splice(this.pendingCard.cardIndex, 1);
@@ -730,7 +744,7 @@ const game = {
       sendMove(this.chess.fen());
     }
   },
-
+  
   highlightEmptySquares() {
     const squares = document.querySelectorAll('.square-55d63');
     squares.forEach(square => {
@@ -742,7 +756,7 @@ const game = {
       }
     });
   },
-
+  
   isDefendingMove(move) {
     const fen = this.chess.fen();
     this.chess.undo();
@@ -751,7 +765,7 @@ const game = {
     const threatenedAfter = this.getThreatenedPieces(move.color);
     return threatenedAfter.length < threatenedBefore.length;
   },
-
+  
   getThreatenedPieces(color) {
     const threatened = [];
     for (let row = 0; row < 8; row++) {
@@ -767,7 +781,7 @@ const game = {
     }
     return threatened;
   },
-
+  
   isSquareAttacked(square, byColor) {
     const moves = this.chess.moves({ verbose: true });
     return moves.some(move => 
@@ -775,13 +789,13 @@ const game = {
       this.chess.get(move.from)?.color === byColor
     );
   },
-
+  
   isForking(move) {
     const moves = this.chess.moves({ square: move.to, verbose: true });
     const attackedPieces = moves.filter(m => this.chess.get(m.to)?.color !== this.chess.get(move.to)?.color);
     return attackedPieces.length >= 2;
   },
-
+  
   isPinning(move) {
     const piece = this.chess.get(move.to);
     if (!piece) return false;
@@ -791,7 +805,7 @@ const game = {
     this.chess.load(fen);
     return this.chess.moves().length < movesBefore;
   },
-
+  
   skipTurn(player) {
     this.isSkippingTurn = true;
     this.drawCard(player);
@@ -803,16 +817,16 @@ const game = {
     this.showMessage(`${player} skipped their turn and drew a card. ${nextPlayer}'s turn.`);
     sendMove(this.chess.fen());
   },
-
+  
   toggleCardHelp() {
     const helpSection = document.getElementById('card-help');
     helpSection.className = helpSection.className === 'hidden' ? '' : 'hidden';
   },
-
+  
   clearNewlyDrawnCards(player) {
     this.newlyDrawnCards[player].clear();
   },
-
+  
   endCurrentTurn() {
     const currentPlayer = this.cardPlayer;
     const nextPlayer = currentPlayer === 'white' ? 'black' : 'white';
@@ -837,54 +851,3 @@ const game = {
 // ------------------------------
 game.init();
 
-// ------------------------------
-// SERVER-SIDE Integration Block
-// ------------------------------
-const socket = io("http://localhost:5000"); // Update this URL for your production server
-
-let gameId = localStorage.getItem("gameId");
-if (!gameId) {
-  fetch("http://localhost:5000/create-game", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" }
-  })
-    .then(response => response.json())
-    .then(data => {
-      gameId = data._id;
-      localStorage.setItem("gameId", gameId);
-      loadGame();
-    })
-    .catch(err => console.error("Error creating game:", err));
-} else {
-  loadGame();
-}
-
-function loadGame() {
-  fetch(`http://localhost:5000/game/${gameId}`)
-    .then(response => response.json())
-    .then(data => {
-      // Load board state from server
-      game.board.position(data.boardState);
-      // Update local player hands from server data
-      playerHand.white = data.playerHands.white;
-      playerHand.black = data.playerHands.black;
-      game.updateCardDisplay();
-    })
-    .catch(err => console.error("Error loading game:", err));
-  socket.emit("join-game", gameId);
-}
-
-function sendMove(fen) {
-  socket.emit("move-piece", { gameId, fen });
-}
-
-socket.on("update-board", (fen) => {
-  game.board.position(fen);
-});
-
-// Utility function to update hand display if needed
-function updateHandDisplay(newHands) {
-  playerHand.white = newHands.white;
-  playerHand.black = newHands.black;
-  game.updateCardDisplay();
-}
