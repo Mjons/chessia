@@ -5,6 +5,17 @@ const { Server } = require("socket.io");
 const mongoose = require("mongoose");
 const cors = require("cors");
 
+
+// Serve static files (HTML, CSS, JS)
+const path = require("path");
+app.use(express.static(path.join(__dirname, "public")));
+
+// Catch-all route to serve index.html
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
+
+
 // Initialize Express app
 const app = express();
 const server = http.createServer(app);
