@@ -5,6 +5,7 @@ const http = require("http");
 const { Server } = require("socket.io");
 const mongoose = require("mongoose");
 const cors = require("cors");
+const Chess = require("chess.js");
 
 // Initialize Express
 const app = express();
@@ -116,11 +117,14 @@ io.on("connection", (socket) => {
       }
 
       socket.join(gameId);
-      console.log(`📌 Player joined game: ${gameId}`);
       
+      // Assign player color based on order of joining
       const clients = await io.in(gameId).allSockets();
-      console.log(`Players in room ${gameId}: ${clients.size}`);
+      socket.playerColor = clients.size === 1 ? 'white' : 'black';
       
+      console.log(`📌 Player joined game: ${gameId} as ${socket.playerColor}`);
+      
+      // Update game with player count
       await Game.findByIdAndUpdate(gameId, { players: clients.size });
       
       if (clients.size >= 2) {
@@ -135,15 +139,33 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("move-piece", async (data) => {
-    const { gameId, fen } = data;
+  socket.on("move-piece", async ({ gameId, fen }) => {
     try {
-      const game = await Game.findByIdAndUpdate(gameId, { boardState: fen });
-      if (game) {
-        io.to(gameId).emit("update-board", fen);
+      const game = await Game.findById(gameId);
+      if (!game) {
+        socket.emit("error", "Game not found");
+        return;
       }
+
+      // Validate that it's the player's turn
+      const chess = new Chess(game.boardState);
+      const currentTurn = chess.turn() === 'w' ? 'white' : 'black';
+      const playerColor = socket.playerColor; // You'll need to set this when player joins
+
+      if (currentTurn !== playerColor) {
+        socket.emit("error", "Not your turn");
+        return;
+      }
+
+      // Update game state
+      game.boardState = fen;
+      await game.save();
+
+      // Broadcast the move to all players in the room
+      io.to(gameId).emit("update-board", fen);
     } catch (err) {
-      console.error("Error updating board state:", err);
+      console.error("Error processing move:", err);
+      socket.emit("error", "Failed to process move");
     }
   });
 

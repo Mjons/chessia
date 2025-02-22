@@ -76,7 +76,14 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   socket.on("update-board", (fen) => {
+    game.chess.load(fen);
     game.board.position(fen);
+    game.updateStatus();
+    
+    // Clear any card modes when receiving opponent's move
+    if (game.chess.turn() === (myColor === 'white' ? 'b' : 'w')) {
+      game.resetCardMode();
+    }
   });
 
   socket.on("error", (message) => {
@@ -125,13 +132,7 @@ document.addEventListener("DOMContentLoaded", () => {
         position: "start",
         pieceTheme: "img/chesspieces/custom/{piece}.png",
         orientation: myColor,
-        onDragStart: (source, piece) => {
-          if (this.waitingForOpponent) {
-            this.showMessage("Waiting for opponent to join...");
-            return false;
-          }
-          return this.onDragStart(source, piece);
-        },
+        onDragStart: this.onDragStart.bind(this),
         onDrop: this.onDrop.bind(this),
         onMouseoverSquare: this.onMouseoverSquare.bind(this),
         onMouseoutSquare: this.onMouseoutSquare.bind(this)
@@ -227,10 +228,27 @@ document.addEventListener("DOMContentLoaded", () => {
     onDragStart(source, piece) {
       if (this.cardMode) return false;
       if (this.chess.game_over()) return false;
-      if ((this.chess.turn() === "w" && piece.search(/^b/) !== -1) ||
-          (this.chess.turn() === "b" && piece.search(/^w/) !== -1)) {
+      
+      // Check if it's this player's turn
+      const currentTurn = this.chess.turn() === 'w' ? 'white' : 'black';
+      if (currentTurn !== myColor) {
+        this.showMessage("Not your turn!");
         return false;
       }
+
+      // Check if piece belongs to the player
+      if ((myColor === 'white' && piece.search(/^b/) !== -1) ||
+          (myColor === 'black' && piece.search(/^w/) !== -1)) {
+        this.showMessage("Can't move opponent's pieces!");
+        return false;
+      }
+
+      // Check if waiting for opponent
+      if (this.waitingForOpponent) {
+        this.showMessage("Waiting for opponent to join...");
+        return false;
+      }
+
       return true;
     },
 
@@ -389,16 +407,24 @@ document.addEventListener("DOMContentLoaded", () => {
     },
 
     handleTeleportClick(event) {
+      if (this.chess.turn() === 'w' ? 'white' : 'black' !== myColor) {
+        this.showMessage("Not your turn!");
+        return;
+      }
+      
       const square = event.target.closest(".square-55d63");
       if (!square) return;
       const position = square.dataset.square;
       if (!position) return;
+
       if (!this.selectedPiece) {
         const piece = this.chess.get(position);
-        if (piece && piece.color === (this.cardPlayer === "white" ? "w" : "b")) {
+        if (piece && piece.color === (myColor === "white" ? "w" : "b")) {
           this.selectedPiece = position;
           this.highlightEmptySquares();
           this.showMessage(`Selected ${piece.type} at ${position}. Now click an empty square for destination.`);
+        } else {
+          this.showMessage("You can only teleport your own pieces!");
         }
       } else {
         const success = this.teleportPiece(this.cardPlayer, this.selectedPiece, position);
@@ -449,11 +475,16 @@ document.addEventListener("DOMContentLoaded", () => {
     },
 
     handleShieldClick(player, event) {
+      if (player !== myColor) {
+        this.showMessage("Not your turn!");
+        return;
+      }
+      
       const square = event.target.closest(".square-55d63");
       if (!square) return;
       const position = square.dataset.square;
       const piece = this.chess.get(position);
-      if (piece && piece.color === (player === "white" ? "w" : "b")) {
+      if (piece && piece.color === (myColor === "white" ? "w" : "b")) {
         this.applyShield(player, position);
       } else {
         this.showMessage("You can only shield your own pieces!");
@@ -467,15 +498,22 @@ document.addEventListener("DOMContentLoaded", () => {
     },
 
     handleKnightsLeapClick(player, event) {
+      if (player !== myColor) {
+        this.showMessage("Not your turn!");
+        return;
+      }
+      
       const square = event.target.closest(".square-55d63");
       if (!square) return;
       const position = square.dataset.square;
       if (!this.selectedPiece) {
         const piece = this.chess.get(position);
-        if (piece && piece.color === (player === "white" ? "w" : "b")) {
+        if (piece && piece.color === (myColor === "white" ? "w" : "b")) {
           this.selectedPiece = position;
           this.highlightKnightMoves(position);
-          this.showMessage(`${player} selected ${piece.type} at ${position}. Now click a knight-move destination.`);
+          this.showMessage(`Selected ${piece.type} at ${position}. Now click a knight-move destination.`);
+        } else {
+          this.showMessage("You can only move your own pieces!");
         }
       } else {
         if (this.isKnightMove(this.selectedPiece, position)) {
@@ -543,15 +581,22 @@ document.addEventListener("DOMContentLoaded", () => {
     },
 
     handleSwapClick(event) {
+      if (this.chess.turn() === 'w' ? 'white' : 'black' !== myColor) {
+        this.showMessage("Not your turn!");
+        return;
+      }
+      
       const square = event.target.closest(".square-55d63");
       if (!square) return;
       const position = square.dataset.square;
       if (!this.swapFirstPiece) {
         const piece = this.chess.get(position);
-        if (piece && piece.color === (this.cardPlayer === "white" ? "w" : "b")) {
+        if (piece && piece.color === (myColor === "white" ? "w" : "b")) {
           this.swapFirstPiece = position;
-          this.highlightPlayerPieces(this.cardPlayer);
-          this.showMessage(`${this.cardPlayer} selected ${piece.type} at ${position}. Now click the second piece to swap.`);
+          this.highlightPlayerPieces(myColor);
+          this.showMessage(`Selected ${piece.type} at ${position}. Now click the second piece to swap.`);
+        } else {
+          this.showMessage("You can only swap your own pieces!");
         }
       } else {
         const success = this.swapPieces(this.cardPlayer, this.swapFirstPiece, position);
