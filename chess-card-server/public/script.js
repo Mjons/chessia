@@ -103,6 +103,19 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // Add this to your socket event listeners
+socket.on("color-assignment", (data) => {
+  myColor = data.color;
+  localStorage.setItem("myColor", myColor);
+  game.showMessage(data.message);
+  console.log("Color assigned:", myColor);
+});
+
+socket.on("opponent-disconnected", (data) => {
+  game.showMessage(data.message);
+  game.waitingForOpponent = true;
+});
+
   // ------------------------------
   // Game Object (Client-Side)
   // ------------------------------
