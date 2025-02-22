@@ -26,42 +26,35 @@ if (!myColor) {
 // ------------------------------
 const socket = io("http://147.182.134.57:3000"); // Replace with your actual server URL/IP
 
-// ------------------------------
-// Game Code & Server-Side Integration (Client-Side)
-// ------------------------------
+// Global gameId (will be set when a match is found)
+let gameId = null;
 
-// Prompt the user for a game code so that two players with the same code share a game
-let gameCode = localStorage.getItem("gameCode");
-if (!gameCode) {
-  gameCode = prompt("Enter a game code to join or create:", "Room123");
-  if (!gameCode) gameCode = "Room123";
-  localStorage.setItem("gameCode", gameCode);
-}
-// Show the room name at the top of the match
-const roomNameEl = document.getElementById("room-name");
-if (roomNameEl) {
-  roomNameEl.textContent = "Room: " + gameCode;
-}
-
-let gameId = localStorage.getItem("gameId");
-if (!gameId) {
-  // Use /join-code endpoint to find or create a game with the provided code
-  fetch("http://147.182.134.57:3000/join-code", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ gameCode })
-  })
+// ------------------------------
+// Auto-Match / Join Button Handling
+// ------------------------------
+// Wait for the user to click the "Join Game" button.
+document.getElementById("join-button").addEventListener("click", () => {
+  // Call the /match endpoint to auto-match players.
+  fetch("http://147.182.134.57:3000/match")
     .then(response => response.json())
     .then(gameDoc => {
       gameId = gameDoc._id;
       localStorage.setItem("gameId", gameId);
+      // Optionally display the room code at the top:
+      const roomNameEl = document.getElementById("room-name");
+      if (roomNameEl) {
+        roomNameEl.textContent = "Room: " + gameDoc.gameCode;
+      }
       loadGame();
+      // Hide the join button since we've now joined a match.
+      document.getElementById("join-button").style.display = "none";
     })
-    .catch(err => console.error("Error joining code:", err));
-} else {
-  loadGame();
-}
+    .catch(err => console.error("Error matching game:", err));
+});
 
+// ------------------------------
+// Load Game State & Join Room
+// ------------------------------
 function loadGame() {
   fetch(`http://147.182.134.57:3000/game/${gameId}`)
     .then(response => response.json())
@@ -73,7 +66,7 @@ function loadGame() {
       game.updateCardDisplay();
     })
     .catch(err => console.error("Error loading game:", err));
-  // Join the game room via socket
+  // Tell the server to add this socket to the game room
   socket.emit("join-game", gameId);
 }
 
@@ -110,7 +103,7 @@ const game = {
   previousTurn: null,
   cardPlayedThisTurn: false,
   isSkippingTurn: false,
-  waitingForOpponent: true, // Initially waiting until at least 2 players join
+  waitingForOpponent: true, // Initially disable moves until match start
   newlyDrawnCards: {
     white: new Set(),
     black: new Set()
@@ -148,7 +141,7 @@ const game = {
       document.getElementById("black-hand").style.display = "block";
     }
 
-    // Add click listeners for card actions on board squares
+    // Add single click listener for card actions on board squares
     const squares = document.querySelectorAll(".square-55d63");
     squares.forEach((square) => {
       square.addEventListener("click", (e) => {
@@ -906,35 +899,14 @@ game.init();
 // ------------------------------
 // Server-Side Integration (Client-Side)
 // ------------------------------
-let storedGameId = localStorage.getItem("gameId");
-if (!storedGameId) {
-  fetch("http://147.182.134.57:3000/create-game", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" }
-  })
-    .then(response => response.json())
-    .then(data => {
-      gameId = data._id;
-      localStorage.setItem("gameId", gameId);
-      loadGame();
-    })
-    .catch(err => console.error("Error creating game:", err));
+// For auto-match, we no longer call /create-game.
+// Instead, the join button calls /match (handled above)
+// Now, if gameId is not set, nothing happens until the user clicks join.
+if (!localStorage.getItem("gameId")) {
+  console.log("Waiting for user to join a match...");
 } else {
-  gameId = storedGameId;
+  gameId = localStorage.getItem("gameId");
   loadGame();
-}
-
-function loadGame() {
-  fetch(`http://147.182.134.57:3000/game/${gameId}`)
-    .then(response => response.json())
-    .then(data => {
-      // Load board state from server
-      game.board.position(data.boardState);
-      // Only update this player's hand from server data
-      playerHand[myColor] = data.playerHands[myColor] || [];
-      game.updateCardDisplay();
-    })
-    .catch(err => console.error("Error loading game:", err));
   socket.emit("join-game", gameId);
 }
 
