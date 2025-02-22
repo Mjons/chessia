@@ -118,6 +118,8 @@ io.on("connection", (socket) => {
         
         await Game.findByIdAndUpdate(gameId, update);
 
+        console.log(`Player ${socket.id} assigned color: ${color}`);
+
         // Send color to client
         socket.emit("color-assignment", {
           color,
@@ -125,6 +127,7 @@ io.on("connection", (socket) => {
         });
 
         if (clients.size === 2) {
+          console.log(`Game ${gameId} starting with white: ${game.whitePlayer}, black: ${game.blackPlayer}`);
           io.to(gameId).emit("match-start", {
             message: "Game starting!",
             gameId
@@ -140,12 +143,26 @@ io.on("connection", (socket) => {
   socket.on("move-piece", async ({ gameId, fen }) => {
     try {
       const game = await Game.findById(gameId);
-      if (!game) return;
+      if (!game) {
+        socket.emit("error", "Game not found");
+        return;
+      }
 
-      const chess = new Chess(game.boardState);
+      // Create chess instance with current game state
+      const chess = new Chess();
+      
+      // Validate the new position
+      try {
+        chess.load(fen);
+      } catch (err) {
+        socket.emit("error", "Invalid position");
+        return;
+      }
+
+      // Get the current turn color
       const currentTurn = chess.turn() === 'w' ? 'white' : 'black';
       
-      // Validate turn
+      // Validate it's the player's turn
       if (currentTurn !== socket.playerColor) {
         socket.emit("error", "Not your turn");
         return;
@@ -155,8 +172,13 @@ io.on("connection", (socket) => {
       game.boardState = fen;
       await game.save();
       
-      // Broadcast move
+      // Broadcast move to all players
       io.to(gameId).emit("update-board", fen);
+      
+      // Log the move for debugging
+      console.log(`Move made by ${socket.playerColor}, new FEN: ${fen}`);
+      console.log(`Next turn: ${chess.turn() === 'w' ? 'white' : 'black'}`);
+      
     } catch (err) {
       console.error("Move error:", err);
       socket.emit("error", "Invalid move");

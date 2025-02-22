@@ -76,17 +76,19 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   socket.on("update-board", (fen) => {
-    console.log("Received board update. Current color:", myColor);
-    console.log("New board state:", fen);
+    console.log("Received board update:", fen);
+    console.log("My color:", myColor);
+    
+    // Update the chess instance and board
     game.chess.load(fen);
     game.board.position(fen);
+    
+    // Update game status
     game.updateStatus();
     
-    // Clear any card modes when receiving opponent's move
+    // Log whose turn it is
     const currentTurn = game.chess.turn() === 'w' ? 'white' : 'black';
-    if (currentTurn !== myColor) {
-      game.resetCardMode();
-    }
+    console.log("Current turn:", currentTurn);
   });
 
   socket.on("error", (message) => {
@@ -270,31 +272,31 @@ socket.on("opponent-disconnected", (data) => {
     },
 
     onDrop(source, target) {
-      if (this.cardMode) return;
-      const move = this.chess.move({ from: source, to: target, promotion: "q" });
-      if (!move) return "snapback";
-      const currentPlayer = this.chess.turn() === "w" ? "black" : "white";
-      const opponent = currentPlayer === "white" ? "black" : "white";
-      if (move.captured && this.protectedPiece === target && this.shieldActiveForPlayer === opponent) {
-        this.chess.undo();
-        console.log(`Move blocked: ${opponent}'s piece at ${target} is shielded!`);
-        return "snapback";
+      // Get the current turn
+      const currentTurn = this.chess.turn() === 'w' ? 'white' : 'black';
+      
+      // Validate it's player's turn
+      if (currentTurn !== myColor) {
+        this.showMessage("Not your turn!");
+        return 'snapback';
       }
-      this.drawCard(currentPlayer);
-      if (move.captured) {
-        this.drawCard(currentPlayer);
-        document.getElementById("capture-sound").play();
-      } else {
-        document.getElementById("move-sound").play();
-      }
+      
+      // Try to make the move
+      const move = this.chess.move({
+        from: source,
+        to: target,
+        promotion: 'q' // Always promote to queen for simplicity
+      });
+
+      // If invalid move, return pieces to their source position
+      if (move === null) return 'snapback';
+
+      // Send the move to the server
+      sendMove(this.chess.fen());
+      
+      // Update the board
       this.board.position(this.chess.fen());
       this.updateStatus();
-      this.updateCardDisplay();
-      if (move !== null) {
-        const nextPlayer = this.chess.turn() === "w" ? "white" : "black";
-        this.clearNewlyDrawnCards(nextPlayer);
-      }
-      sendMove(this.chess.fen());
     },
 
     drawCard(player) {
