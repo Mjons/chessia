@@ -126,6 +126,38 @@ io.on("connection", (socket) => {
   });
 });
 
+
+// Add this to your server.js (before starting the server)
+let waitingGameId = null; // Global variable to hold a waiting game
+
+app.get("/match", async (req, res) => {
+  try {
+    if (waitingGameId) {
+      // Return the waiting game and mark it as active
+      const game = await Game.findById(waitingGameId);
+      if (game) {
+        // Optionally update game status here
+        waitingGameId = null;
+        return res.json(game);
+      }
+    }
+    // Otherwise, create a new game
+    const newGame = new Game({
+      boardState: "start",
+      playerHands: { white: [], black: [] },
+      turn: "white",
+      messages: ["Game started."],
+      // Optionally, set a game code or status if desired
+    });
+    await newGame.save();
+    waitingGameId = newGame._id;
+    res.json(newGame);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
 // Health check
 app.get("/", (req, res) => {
   res.send("✅ Chess server up!");

@@ -36,22 +36,17 @@ document.addEventListener("DOMContentLoaded", () => {
   const joinButton = document.getElementById("join-button");
   if (joinButton) {
     joinButton.addEventListener("click", () => {
-      // Call the /match endpoint to auto-match players.
-      fetch("http://147.182.134.57:3000/match")
-        .then(response => response.json())
-        .then(gameDoc => {
-          gameId = gameDoc._id;
-          localStorage.setItem("gameId", gameId);
-          // Update room name display if available
-          const roomNameEl = document.getElementById("room-name");
-          if (roomNameEl) {
-            roomNameEl.textContent = "Room: " + (gameDoc.gameCode || "Auto-Match");
-          }
-          loadGame();
-          // Hide join button after joining
-          joinButton.style.display = "none";
-        })
-        .catch(err => console.error("Error matching game:", err));
+    // Instead of fetching /match, call /join-code
+fetch("http://147.182.134.57:3000/join-code", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ gameCode: "Room123" }) // or your chosen code
+})
+.then(response => response.json())
+.then(gameDoc => {
+  // process gameDoc...
+})
+.catch(err => console.error("Error matching game:", err));
     });
   } else {
     console.error("Join button not found.");
