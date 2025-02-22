@@ -21,12 +21,60 @@ if (!myColor) {
   localStorage.setItem("myColor", myColor);
 }
 
-
-
-const socket = io("http://147.182.134.57:3000"); 
+// ------------------------------
+// Socket.IO Initialization
+// ------------------------------
+const socket = io("http://147.182.134.57:3000"); // Replace with your server URL/IP
 
 // ------------------------------
-// Game Object (with Integrated Updates)
+// Server-Side Integration Block (Client-Side)
+// ------------------------------
+let gameId = localStorage.getItem("gameId");
+if (!gameId) {
+  fetch("http://147.182.134.57:3000/create-game", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" }
+  })
+    .then(response => response.json())
+    .then(data => {
+      gameId = data._id;
+      localStorage.setItem("gameId", gameId);
+      loadGame();
+    })
+    .catch(err => console.error("Error creating game:", err));
+} else {
+  loadGame();
+}
+
+function loadGame() {
+  fetch(`http://147.182.134.57:3000/game/${gameId}`)
+    .then(response => response.json())
+    .then(data => {
+      // Load board state from server
+      game.board.position(data.boardState);
+      // Update only this player's hand from server data
+      playerHand[myColor] = data.playerHands[myColor] || [];
+      game.updateCardDisplay();
+    })
+    .catch(err => console.error("Error loading game:", err));
+  socket.emit("join-game", gameId);
+}
+
+function sendMove(fen) {
+  socket.emit("move-piece", { gameId, fen });
+}
+
+socket.on("update-board", (fen) => {
+  game.board.position(fen);
+});
+
+function updateHandDisplay(newHands) {
+  playerHand[myColor] = newHands[myColor];
+  game.updateCardDisplay();
+}
+
+// ------------------------------
+// Game Object (Client-Side)
 // ------------------------------
 const game = {
   chess: new Chess(),
@@ -44,7 +92,7 @@ const game = {
   previousTurn: null,
   cardPlayedThisTurn: false,
   isSkippingTurn: false,
-  waitingForOpponent: true, // New flag: disable moves until both players are present
+  waitingForOpponent: true, // Initially, disable moves until an opponent joins
   newlyDrawnCards: {
     white: new Set(),
     black: new Set()
@@ -56,8 +104,7 @@ const game = {
       draggable: true,
       position: 'start',
       pieceTheme: 'img/chesspieces/custom/{piece}.png',
-      orientation: myColor, // Orient board for current player
-      // Wrap onDragStart to disable moves if waiting for opponent
+      orientation: myColor, // Board oriented for current player
       onDragStart: (source, piece) => {
         if (this.waitingForOpponent) {
           this.showMessage("Waiting for opponent to join...");
@@ -74,7 +121,11 @@ const game = {
     this.updateTokens();
     this.updateCardDisplay();
 
-    // Hide opponent's cards: show only my hand
+    // When an opponent joins, the server should trigger an event to set waitingForOpponent = false.
+    // For now, you can test by manually setting:
+    // this.waitingForOpponent = false;
+
+    // Hide opponent's cards so only your own hand is visible
     if (myColor === "white") {
       document.getElementById("black-hand").style.display = "none";
       document.getElementById("white-hand").style.display = "block";
@@ -83,7 +134,7 @@ const game = {
       document.getElementById("black-hand").style.display = "block";
     }
 
-    // Add single click listener for card actions
+    // Add single click listeners for card actions
     const squares = document.querySelectorAll('.square-55d63');
     squares.forEach(square => {
       square.addEventListener('click', (e) => {
@@ -120,7 +171,7 @@ const game = {
     helpButton.className = 'help-button';
     helpButton.textContent = 'Show Game Rules';
     helpButton.onclick = () => this.toggleCardHelp();
-    
+
     const helpSection = document.createElement('div');
     helpSection.id = 'card-help';
     helpSection.className = 'hidden';
@@ -134,7 +185,6 @@ const game = {
                 <li><strong>Swap Sacrifice:</strong> Swap the positions of any two of your pieces. Ends your turn.</li>
             </ul>
         </div>
-        
         <div class="help-section">
             <h3>How to Draw Cards</h3>
             <p>You can draw a card (up to 3 cards max) by performing any of these actions:</p>
@@ -151,12 +201,11 @@ const game = {
             <p><em>Note: You can only hold up to 3 cards at a time.</em></p>
         </div>
     `;
-    
+
     const helpContainer = document.createElement('div');
     helpContainer.id = 'card-help-container';
     helpContainer.appendChild(helpButton);
     helpContainer.appendChild(helpSection);
-    
     document.querySelector('.container').appendChild(helpContainer);
   },
 
@@ -173,19 +222,15 @@ const game = {
 
   onDrop(source, target) {
     if (this.cardMode) return;
-  
     const move = this.chess.move({ from: source, to: target, promotion: 'q' });
     if (!move) return 'snapback';
-  
-    const currentPlayer = this.chess.turn() === 'w' ? 'black' : 'white'; // Player who just moved
+    const currentPlayer = this.chess.turn() === 'w' ? 'black' : 'white';
     const opponent = currentPlayer === 'white' ? 'black' : 'white';
-  
     if (move.captured && this.protectedPiece === target && this.shieldActiveForPlayer === opponent) {
       this.chess.undo();
       console.log(`Move blocked: ${opponent}'s piece at ${target} is shielded!`);
       return 'snapback';
     }
-  
     this.drawCard(currentPlayer);
     if (move.captured) {
       this.drawCard(currentPlayer);
@@ -193,29 +238,22 @@ const game = {
     } else {
       document.getElementById('move-sound').play();
     }
-  
     this.board.position(this.chess.fen());
     this.updateStatus();
     this.updateCardDisplay();
-  
     if (move !== null) {
       const nextPlayer = this.chess.turn() === 'w' ? 'white' : 'black';
       this.clearNewlyDrawnCards(nextPlayer);
     }
-    
-    // Broadcast new board state to the server
     sendMove(this.chess.fen());
   },
 
   drawCard(player) {
     if (cardDeck.length === 0) return;
-    
     const lastMove = this.chess.history({ verbose: true }).pop();
     if (!lastMove && !this.isSkippingTurn) return;
-    
     let shouldDrawCard = false;
     const reasons = [];
-  
     if (this.isSkippingTurn) {
       shouldDrawCard = true;
       reasons.push("skipping turn");
@@ -250,7 +288,6 @@ const game = {
         reasons.push("pinning an opponent's piece");
       }
     }
-  
     if (shouldDrawCard && playerHand[player].length < 3) {
       const randomIndex = Math.floor(Math.random() * cardDeck.length);
       const card = cardDeck[randomIndex];
@@ -274,7 +311,6 @@ const game = {
     this.pendingCard = { player, cardIndex };
     const card = playerHand[player][cardIndex];
     this.cardPlayer = player;
-  
     const currentTurn = this.chess.turn() === 'w' ? 'white' : 'black';
     if (player !== currentTurn) {
       this.showMessage(`You can only play cards during your turn! Current turn: ${currentTurn}`);
@@ -284,7 +320,6 @@ const game = {
       this.showMessage("Newly drawn cards can't be used until your next turn!");
       return;
     }
-  
     switch (card.effect) {
       case "moveAnyPieceAnywhere":
         this.showMessage(`${player}'s turn: Teleportation activated! Click a piece to teleport, then a destination.`);
@@ -311,18 +346,18 @@ const game = {
       document.getElementById('cancel-card-action').style.display = 'block';
     }
   },
-  
+
   cancelCardAction() {
     this.resetCardMode();
     this.showMessage("Card action canceled. You can choose another card or make a normal move.");
   },
-  
+
   enableTeleportation(player) {
     this.cardMode = 'teleport';
     this.selectedPiece = null;
     this.highlightPlayerPieces(player);
   },
-  
+
   showMessage(message) {
     console.log(message);
     const messageLog = document.getElementById('message-log');
@@ -338,7 +373,7 @@ const game = {
       messageLog.removeChild(messageLog.lastChild);
     }
   },
-  
+
   handleTeleportClick(event) {
     const square = event.target.closest('.square-55d63');
     if (!square) return;
@@ -369,7 +404,7 @@ const game = {
       }
     }
   },
-  
+
   teleportPiece(player, source, target) {
     const piece = this.chess.get(source);
     if (!piece) return false;
@@ -392,13 +427,13 @@ const game = {
       return true;
     }
   },
-  
+
   enableShield(player) {
     this.cardMode = 'shield';
     this.selectedPiece = null;
     this.highlightPlayerPieces(player);
   },
-  
+
   handleShieldClick(player, event) {
     const square = event.target.closest('.square-55d63');
     if (!square) return;
@@ -410,13 +445,13 @@ const game = {
       this.showMessage("You can only shield your own pieces!");
     }
   },
-  
+
   enableKnightsLeap(player) {
     this.cardMode = 'knight';
     this.selectedPiece = null;
     this.highlightPlayerPieces(player);
   },
-  
+
   handleKnightsLeapClick(player, event) {
     const square = event.target.closest('.square-55d63');
     if (!square) return;
@@ -451,7 +486,7 @@ const game = {
       }
     }
   },
-  
+
   moveLikeKnight(player, source, target) {
     const piece = this.chess.get(source);
     if (!piece) return false;
@@ -485,14 +520,14 @@ const game = {
       return true;
     }
   },
-  
+
   enableSwap(player) {
     this.cardMode = 'swap';
     this.selectedPiece = null;
     this.swapFirstPiece = null;
     this.highlightPlayerPieces(player);
   },
-  
+
   handleSwapClick(event) {
     const square = event.target.closest('.square-55d63');
     if (!square) return;
@@ -522,7 +557,7 @@ const game = {
       }
     }
   },
-  
+
   swapPieces(player, source, target) {
     const piece1 = this.chess.get(source);
     const piece2 = this.chess.get(target);
@@ -556,7 +591,7 @@ const game = {
       return false;
     }
   },
-  
+
   applyShield(player, square) {
     const piece = this.chess.get(square);
     if (piece && piece.color === (player === 'white' ? 'w' : 'b')) {
@@ -585,7 +620,7 @@ const game = {
       this.updateStatus();
     }
   },
-  
+
   isKnightMove(source, target) {
     const sourceX = source.charCodeAt(0) - 'a'.charCodeAt(0);
     const sourceY = parseInt(source[1]) - 1;
@@ -595,20 +630,20 @@ const game = {
     const dy = Math.abs(targetY - sourceY);
     return (dx === 2 && dy === 1) || (dx === 1 && dy === 2);
   },
-  
+
   advanceTurn() {
     const currentTurn = this.chess.turn();
     this.chess.load(this.chess.fen(), true);
     this.chess.load(`${this.chess.fen().split(' ')[0]} ${currentTurn === 'w' ? 'b' : 'w'} ${this.chess.fen().split(' ')[2]} ${this.chess.fen().split(' ')[3]} ${this.chess.fen().split(' ')[4]} ${parseInt(this.chess.fen().split(' ')[5]) + 1}`, true);
   },
-  
+
   lockBoard() {
     this.board.draggable = false;
     setTimeout(() => {
       this.board.draggable = true;
     }, 100);
   },
-  
+
   highlightPlayerPieces(player) {
     const squares = document.querySelectorAll('.square-55d63');
     squares.forEach(square => {
@@ -620,12 +655,12 @@ const game = {
       }
     });
   },
-  
+
   highlightAllSquares() {
     const squares = document.querySelectorAll('.square-55d63');
     squares.forEach(square => square.classList.add('highlight'));
   },
-  
+
   highlightKnightMoves(source) {
     const sourceX = source.charCodeAt(0) - 'a'.charCodeAt(0);
     const sourceY = parseInt(source[1]) - 1;
@@ -647,7 +682,7 @@ const game = {
       }
     });
   },
-  
+
   resetCardMode() {
     this.cardMode = null;
     this.cardPlayer = null;
@@ -660,19 +695,19 @@ const game = {
     this.board.draggable = true;
     document.getElementById('cancel-card-action').style.display = 'none';
   },
-  
+
   onMouseoverSquare(square, piece) {
     if (this.cardMode === 'shield' && piece) {
       document.querySelector(`.square-${square}`).classList.add('highlight');
     }
   },
-  
+
   onMouseoutSquare(square, piece) {
     if (this.cardMode === 'shield' && this.protectedPiece !== square) {
       document.querySelector(`.square-${square}`).classList.remove('highlight');
     }
   },
-  
+
   updateStatus() {
     let status = '';
     if (this.chess.in_checkmate()) {
@@ -704,15 +739,14 @@ const game = {
     }
     this.previousTurn = currentTurn;
   },
-  
+
   updateTokens() {
     document.getElementById('white-tokens').textContent = `White: ${this.players.white.tokens} tokens`;
     document.getElementById('black-tokens').textContent = `Black: ${this.players.black.tokens} tokens`;
   },
-  
+
   updateCardDisplay() {
-    // Only show current player's hand
-    if(myColor === "white"){
+    if (myColor === "white") {
       document.getElementById("white-hand").style.display = "block";
       document.getElementById("black-hand").style.display = "none";
     } else {
@@ -734,7 +768,7 @@ const game = {
       handElement.appendChild(button);
     });
   },
-  
+
   completeCardAction() {
     if (this.pendingCard) {
       playerHand[this.pendingCard.player].splice(this.pendingCard.cardIndex, 1);
@@ -748,7 +782,7 @@ const game = {
       sendMove(this.chess.fen());
     }
   },
-  
+
   highlightEmptySquares() {
     const squares = document.querySelectorAll('.square-55d63');
     squares.forEach(square => {
@@ -760,7 +794,7 @@ const game = {
       }
     });
   },
-  
+
   isDefendingMove(move) {
     const fen = this.chess.fen();
     this.chess.undo();
@@ -769,7 +803,7 @@ const game = {
     const threatenedAfter = this.getThreatenedPieces(move.color);
     return threatenedAfter.length < threatenedBefore.length;
   },
-  
+
   getThreatenedPieces(color) {
     const threatened = [];
     for (let row = 0; row < 8; row++) {
@@ -785,7 +819,7 @@ const game = {
     }
     return threatened;
   },
-  
+
   isSquareAttacked(square, byColor) {
     const moves = this.chess.moves({ verbose: true });
     return moves.some(move => 
@@ -793,13 +827,13 @@ const game = {
       this.chess.get(move.from)?.color === byColor
     );
   },
-  
+
   isForking(move) {
     const moves = this.chess.moves({ square: move.to, verbose: true });
     const attackedPieces = moves.filter(m => this.chess.get(m.to)?.color !== this.chess.get(move.to)?.color);
     return attackedPieces.length >= 2;
   },
-  
+
   isPinning(move) {
     const piece = this.chess.get(move.to);
     if (!piece) return false;
@@ -809,7 +843,7 @@ const game = {
     this.chess.load(fen);
     return this.chess.moves().length < movesBefore;
   },
-  
+
   skipTurn(player) {
     this.isSkippingTurn = true;
     this.drawCard(player);
@@ -821,16 +855,16 @@ const game = {
     this.showMessage(`${player} skipped their turn and drew a card. ${nextPlayer}'s turn.`);
     sendMove(this.chess.fen());
   },
-  
+
   toggleCardHelp() {
     const helpSection = document.getElementById('card-help');
     helpSection.className = helpSection.className === 'hidden' ? '' : 'hidden';
   },
-  
+
   clearNewlyDrawnCards(player) {
     this.newlyDrawnCards[player].clear();
   },
-  
+
   endCurrentTurn() {
     const currentPlayer = this.cardPlayer;
     const nextPlayer = currentPlayer === 'white' ? 'black' : 'white';
@@ -855,3 +889,50 @@ const game = {
 // ------------------------------
 game.init();
 
+// ------------------------------
+// Server-Side Integration Block (Client-Side)
+// ------------------------------
+let gameIdFromStorage = localStorage.getItem("gameId");
+if (!gameIdFromStorage) {
+  fetch("http://147.182.134.57:3000/create-game", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" }
+  })
+    .then(response => response.json())
+    .then(data => {
+      gameId = data._id;
+      localStorage.setItem("gameId", gameId);
+      loadGame();
+    })
+    .catch(err => console.error("Error creating game:", err));
+} else {
+  gameId = gameIdFromStorage;
+  loadGame();
+}
+
+function loadGame() {
+  fetch(`http://147.182.134.57:3000/game/${gameId}`)
+    .then(response => response.json())
+    .then(data => {
+      // Load board state from server
+      game.board.position(data.boardState);
+      // Only update this player's hand from server data
+      playerHand[myColor] = data.playerHands[myColor] || [];
+      game.updateCardDisplay();
+    })
+    .catch(err => console.error("Error loading game:", err));
+  socket.emit("join-game", gameId);
+}
+
+function sendMove(fen) {
+  socket.emit("move-piece", { gameId, fen });
+}
+
+socket.on("update-board", (fen) => {
+  game.board.position(fen);
+});
+
+function updateHandDisplay(newHands) {
+  playerHand[myColor] = newHands[myColor];
+  game.updateCardDisplay();
+}
