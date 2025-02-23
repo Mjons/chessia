@@ -72,32 +72,31 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function sendMove(fen) {
-    // Validate FEN before sending
     const chess = new Chess();
     if (!chess.load(fen)) {
       console.error("Invalid FEN on client:", fen);
-      alert("Invalid move");
+      game.showMessage("Invalid move");
       return;
     }
-
+    console.log(`Sending move - FEN: ${fen}, Game ID: ${gameId}`);
     socket.emit("move-piece", { gameId, fen });
   }
 
   socket.on("update-board", ({ fen, currentTurn }) => {
-    console.log("Received board update:", fen);
-    console.log("My color:", myColor);
+    console.log("Received board update - FEN:", fen, "Turn:", currentTurn);
     
-    // Update the chess instance and board
-    game.chess.load(fen);
-    game.board.position(fen);
-    
-    // Update game status
-    game.updateStatus();
-    
-    // Log whose turn it is
-    console.log("Current turn:", currentTurn);
-    if (currentTurn !== myColor) {
-      game.showMessage("Not your turn!");
+    // Load the FEN into the chess instance
+    if (game.chess.load(fen)) {
+      game.board.position(fen);
+      game.updateStatus();
+      if (currentTurn !== myColor) {
+        game.showMessage("Opponent's turn!");
+      } else {
+        game.showMessage("Your turn!");
+      }
+    } else {
+      console.error("Failed to load FEN:", fen);
+      game.showMessage("Error: Invalid game state received");
     }
   });
 
@@ -282,31 +281,24 @@ socket.on("opponent-disconnected", (data) => {
     },
 
     onDrop(source, target) {
-      // Get the current turn
-      const currentTurn = this.chess.turn() === 'w' ? 'white' : 'black';
-      
-      // Validate it's player's turn
+      const currentTurn = this.chess.turn() === "w" ? "white" : "black";
       if (currentTurn !== myColor) {
         this.showMessage("Not your turn!");
-        return 'snapback';
+        return "snapback";
       }
-      
-      // Try to make the move
+
       const move = this.chess.move({
         from: source,
         to: target,
-        promotion: 'q' // Always promote to queen for simplicity
+        promotion: "q"
       });
 
-      // If invalid move, return pieces to their source position
-      if (move === null) return 'snapback';
+      if (move === null) return "snapback";
 
-      // Send the move to the server
-      sendMove(this.chess.fen());
-      
-      // Update the board
-      this.board.position(this.chess.fen());
-      this.updateStatus();
+      const fen = this.chess.fen();
+      sendMove(fen);
+      this.updateStatus(); // Update status locally but wait for server confirmation
+      return; // Do not update board here; wait for server
     },
 
     drawCard(player) {
@@ -489,14 +481,17 @@ socket.on("opponent-disconnected", (data) => {
       if (this.chess.in_check()) {
         this.chess.remove(target);
         this.chess.put(piece, source);
-        console.log("Invalid teleportation: cannot leave king in check.");
+        this.showMessage("Invalid teleportation: cannot leave king in check.");
         return false;
-      } else {
-        document.getElementById("move-sound").play();
-        console.log(`${player} teleported ${piece.type} from ${source} to ${target}. Turn ends.`);
-        sendMove(this.chess.fen());
-        return true;
       }
+      const fenParts = this.chess.fen().split(" ");
+      fenParts[1] = player === "white" ? "b" : "w"; // Force turn switch
+      const newFen = fenParts.join(" ");
+      this.chess.load(newFen);
+      document.getElementById("move-sound").play();
+      this.showMessage(`${player} teleported ${piece.type} from ${source} to ${target}.`);
+      sendMove(newFen);
+      return true;
     },
 
     enableShield(player) {
@@ -572,14 +567,7 @@ socket.on("opponent-disconnected", (data) => {
 
     moveLikeKnight(player, source, target) {
       const piece = this.chess.get(source);
-      if (!piece) return false;
-      const targetPiece = this.chess.get(target);
-      const opponent = player === "white" ? "black" : "white";
-      if (targetPiece && this.protectedPiece === target && this.shieldActiveForPlayer === opponent) {
-        this.showMessage(`Knight's Leap blocked: ${opponent}'s piece at ${target} is shielded!`);
-        return false;
-      }
-      const originalTargetPiece = targetPiece;
+      const originalTargetPiece = this.chess.get(target);
       this.chess.remove(source);
       this.chess.put(piece, target);
       if (this.chess.in_check()) {
@@ -588,20 +576,15 @@ socket.on("opponent-disconnected", (data) => {
         this.chess.put(piece, source);
         this.showMessage("Invalid knight's leap: cannot leave king in check.");
         return false;
-      } else {
-        if (originalTargetPiece && originalTargetPiece.color !== piece.color) {
-          this.showMessage(`${player} captured ${originalTargetPiece.type} at ${target} with Knight's Leap!`);
-          document.getElementById("capture-sound").play();
-        } else {
-          document.getElementById("move-sound").play();
-        }
-        const nextPlayer = player === "white" ? "black" : "white";
-        const newFen = this.chess.fen().replace(/ w | b /, ` ${nextPlayer === "white" ? "w" : "b"} `);
-        this.chess.load(newFen);
-        this.showMessage(`${player} moved ${piece.type} like a knight from ${source} to ${target}. ${nextPlayer}'s turn.`);
-        sendMove(this.chess.fen());
-        return true;
       }
+      const fenParts = this.chess.fen().split(" ");
+      fenParts[1] = player === "white" ? "b" : "w"; // Force turn switch
+      const newFen = fenParts.join(" ");
+      this.chess.load(newFen);
+      document.getElementById("move-sound").play();
+      this.showMessage(`${player} moved like a knight from ${source} to ${target}.`);
+      sendMove(newFen);
+      return true;
     },
 
     enableSwap(player) {
@@ -651,37 +634,28 @@ socket.on("opponent-disconnected", (data) => {
     },
 
     swapPieces(player, source, target) {
-      const piece1 = this.chess.get(source);
-      const piece2 = this.chess.get(target);
-      if (piece1 && piece2 && piece1.color === piece2.color) {
-        const originalPiece1 = piece1;
-        const originalPiece2 = piece2;
+      const originalPiece1 = this.chess.get(source);
+      const originalPiece2 = this.chess.get(target);
+      this.chess.remove(source);
+      this.chess.remove(target);
+      this.chess.put(originalPiece1, target);
+      this.chess.put(originalPiece2, source);
+      if (this.chess.in_check()) {
         this.chess.remove(source);
         this.chess.remove(target);
-        this.chess.put(originalPiece1, target);
-        this.chess.put(originalPiece2, source);
-        if (this.chess.in_check()) {
-          this.chess.remove(source);
-          this.chess.remove(target);
-          this.chess.put(originalPiece1, source);
-          this.chess.put(originalPiece2, target);
-          this.showMessage("Cannot swap pieces: would leave king in check!");
-          return false;
-        }
-        this.board.position(this.chess.fen());
-        document.getElementById("move-sound").play();
-        const nextPlayer = player === "white" ? "black" : "white";
-        const newFen = this.chess.fen().replace(/ w | b /, ` ${nextPlayer === "white" ? "w" : "b"} `);
-        this.chess.load(newFen);
-        this.showMessage(`${player} swapped ${piece1.type} at ${source} with ${piece2.type} at ${target}. ${nextPlayer}'s turn.`);
-        sendMove(this.chess.fen());
-        return true;
-      } else {
-        this.showMessage("Can only swap pieces of the same color!");
-        this.swapFirstPiece = null;
-        this.highlightPlayerPieces(player);
+        this.chess.put(originalPiece1, source);
+        this.chess.put(originalPiece2, target);
+        this.showMessage("Cannot swap pieces: would leave king in check!");
         return false;
       }
+      const fenParts = this.chess.fen().split(" ");
+      fenParts[1] = player === "white" ? "b" : "w"; // Force turn switch
+      const newFen = fenParts.join(" ");
+      this.chess.load(newFen);
+      document.getElementById("move-sound").play();
+      this.showMessage(`${player} swapped pieces at ${source} and ${target}.`);
+      sendMove(newFen);
+      return true;
     },
 
     applyShield(player, square) {
@@ -991,10 +965,6 @@ socket.on("opponent-disconnected", (data) => {
     socket.emit("join-game", gameId);
   } else {
     console.log("Waiting for user to join a match via the join button...");
-  }
-
-  function sendMove(fen) {
-    socket.emit("move-piece", { gameId, fen });
   }
 
   function updateHandDisplay(newHands) {

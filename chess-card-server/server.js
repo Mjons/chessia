@@ -50,27 +50,26 @@ const Game = mongoose.model("Game", GameSchema);
 // Auto-Match Endpoint: GET /match
 // If a waiting game exists, return it. Otherwise, create a new game.
 // ------------------------------
-let waitingGame = null;
-
 app.get("/match", async (req, res) => {
   try {
-    if (waitingGame) {
-      const game = await Game.findById(waitingGame);
-      if (game && game.players < 2) {
-        game.players += 1;
-        await game.save();
-        const gameData = game.toObject();
-        waitingGame = null;
-        return res.json(gameData);
-      }
+    // Look for a game with only one player
+    let game = await Game.findOne({ players: 1 });
+    if (game) {
+      game.players = 2;
+      game.blackPlayer = null; // Will be set via socket
+      await game.save();
+      return res.json(game.toObject());
     }
 
-    const newGame = await Game.create({ 
+    // If no waiting game, create a new one
+    game = await Game.create({
       players: 1,
-      currentTurn: 'white'
+      whitePlayer: null, // Will be set via socket
+      blackPlayer: null,
+      currentTurn: "white",
+      boardState: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
     });
-    waitingGame = newGame._id;
-    res.json(newGame.toObject());
+    res.json(game.toObject());
   } catch (err) {
     console.error("Match error:", err);
     res.status(500).json({ error: "Failed to create/join game" });
@@ -106,41 +105,45 @@ io.on("connection", (socket) => {
 
       socket.join(gameId);
       const clients = await io.in(gameId).allSockets();
-      
-      if (clients.size <= 2) {
-        // Assign color based on whether white player exists
-        const color = !game.whitePlayer ? 'white' : 'black';
-        socket.playerColor = color;
-        
-        const update = {};
-        if (color === 'white') {
-          update.whitePlayer = socket.id;
-        } else {
-          update.blackPlayer = socket.id;
-        }
-        
-        await Game.findByIdAndUpdate(gameId, update);
-        
-        console.log(`Player ${socket.id} assigned color: ${color}`);
-        
-        socket.data = { color: color, gameId: gameId };
 
-        socket.emit("color-assignment", {
-          color,
-          message: `You are playing as ${color}`
-        });
-
-        if (clients.size === 2) {
-          console.log(`Game ${gameId} starting with white: ${game.whitePlayer}, black: ${game.blackPlayer}`);
-          io.to(gameId).emit("match-start", {
-            message: "Game starting!",
-            gameId,
-            currentTurn: 'white'
-          });
-        }
-      } else {
+      if (clients.size > 2) {
         socket.emit("error", "Game is full");
         socket.disconnect();
+        return;
+      }
+
+      // Assign color based on current game state
+      let color;
+      if (!game.whitePlayer) {
+        color = "white";
+        game.whitePlayer = socket.id;
+      } else if (!game.blackPlayer && game.whitePlayer !== socket.id) {
+        color = "black";
+        game.blackPlayer = socket.id;
+      } else {
+        socket.emit("error", "You are already in this game");
+        return;
+      }
+
+      await game.save();
+
+      socket.playerColor = color;
+      socket.data = { color, gameId };
+
+      console.log(`Player ${socket.id} joined game ${gameId} as ${color}`);
+
+      socket.emit("color-assignment", {
+        color,
+        message: `You are playing as ${color}`
+      });
+
+      if (game.players === 2 && game.whitePlayer && game.blackPlayer) {
+        io.to(gameId).emit("match-start", {
+          message: "Game starting!",
+          gameId,
+          currentTurn: game.currentTurn,
+          boardState: game.boardState
+        });
       }
     } catch (err) {
       console.error("Join error:", err);
@@ -156,39 +159,45 @@ io.on("connection", (socket) => {
         return;
       }
 
-      // Log the FEN string for debugging
-      console.log(`Received FEN: ${fen}`);
+      console.log(`Received move from ${socket.id} (${socket.playerColor}): ${fen}`);
 
       const chess = new Chess();
       if (!chess.load(fen)) {
         console.error("Invalid FEN:", fen);
-        socket.emit("error", "Invalid move");
+        socket.emit("error", "Invalid move - FEN validation failed");
         return;
       }
 
-      const currentTurn = chess.turn() === 'w' ? 'white' : 'black';
-      
+      const currentTurn = chess.turn() === "w" ? "white" : "black";
       if (socket.playerColor !== currentTurn) {
         socket.emit("error", "Not your turn");
         return;
       }
 
-      // Update game state
+      const prevChess = new Chess(game.boardState);
+      const moves = prevChess.moves({ verbose: true });
+      const lastMove = moves.find(
+        (m) => m.from + m.to === fen.split(" ")[0].match(/([a-h][1-8]){2}/)?.[0]
+      );
+      if (!lastMove && !fen.includes("card")) {
+        socket.emit("error", "Illegal move");
+        return;
+      }
+
       game.boardState = fen;
-      game.currentTurn = chess.turn() === 'w' ? 'black' : 'white'; // Switch turn
+      game.currentTurn = currentTurn === "white" ? "black" : "white";
       await game.save();
 
-      // Broadcast the updated state
+      console.log(`Move accepted. New turn: ${game.currentTurn}, FEN: ${fen}`);
+
       io.to(gameId).emit("update-board", {
-        fen: fen,
+        fen,
         currentTurn: game.currentTurn
       });
 
-      console.log(`Move made by ${socket.playerColor}, next turn: ${game.currentTurn}`);
-
     } catch (err) {
       console.error("Move error:", err);
-      socket.emit("error", "Invalid move");
+      socket.emit("error", "Server error processing move");
     }
   });
 
