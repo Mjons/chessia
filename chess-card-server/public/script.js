@@ -83,7 +83,7 @@ document.addEventListener("DOMContentLoaded", () => {
     socket.emit("move-piece", { gameId, fen });
   }
 
-  socket.on("update-board", (fen) => {
+  socket.on("update-board", ({ fen, currentTurn }) => {
     console.log("Received board update:", fen);
     console.log("My color:", myColor);
     
@@ -95,8 +95,10 @@ document.addEventListener("DOMContentLoaded", () => {
     game.updateStatus();
     
     // Log whose turn it is
-    const currentTurn = game.chess.turn() === 'w' ? 'white' : 'black';
     console.log("Current turn:", currentTurn);
+    if (currentTurn !== myColor) {
+      game.showMessage("Not your turn!");
+    }
   });
 
   socket.on("error", (message) => {

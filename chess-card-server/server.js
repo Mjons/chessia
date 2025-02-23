@@ -173,10 +173,12 @@ io.on("connection", (socket) => {
         return;
       }
 
+      // Update game state
       game.boardState = fen;
-      game.currentTurn = chess.turn() === 'w' ? 'black' : 'white';
+      game.currentTurn = chess.turn() === 'w' ? 'black' : 'white'; // Switch turn
       await game.save();
 
+      // Broadcast the updated state
       io.to(gameId).emit("update-board", {
         fen: fen,
         currentTurn: game.currentTurn
