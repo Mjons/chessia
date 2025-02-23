@@ -72,6 +72,12 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function sendMove(fen) {
+    // Validate FEN before sending
+    const chess = new Chess();
+    if (!chess.load(fen)) {
+      console.error("Invalid FEN");
+      return;
+    }
     socket.emit("move-piece", { gameId, fen });
   }
 
@@ -984,6 +990,12 @@ socket.on("opponent-disconnected", (data) => {
   }
 
   function sendMove(fen) {
+    // Validate FEN before sending
+    const chess = new Chess();
+    if (!chess.load(fen)) {
+      console.error("Invalid FEN");
+      return;
+    }
     socket.emit("move-piece", { gameId, fen });
   }
 

@@ -137,6 +137,9 @@ io.on("connection", (socket) => {
             currentTurn: 'white'
           });
         }
+      } else {
+        socket.emit("error", "Game is full");
+        socket.disconnect();
       }
     } catch (err) {
       console.error("Join error:", err);
@@ -152,26 +155,19 @@ io.on("connection", (socket) => {
         return;
       }
 
-      let chess;
-      try {
-        chess = new Chess();
-        if (!chess.load(fen)) {
-          throw new Error("Invalid position");
-        }
-      } catch (err) {
-        console.error("Chess initialization error:", err);
+      // Log the FEN string for debugging
+      console.log(`Received FEN: ${fen}`);
+
+      const chess = new Chess();
+      if (!chess.load(fen)) {
+        console.error("Invalid FEN:", fen);
         socket.emit("error", "Invalid move");
         return;
       }
 
-      console.log("Chess instance created successfully");
-      console.log("Current FEN:", chess.fen());
-      console.log("Current turn:", chess.turn());
-
       const currentTurn = chess.turn() === 'w' ? 'white' : 'black';
       
       if (socket.playerColor !== currentTurn) {
-        console.log(`Invalid turn: ${socket.playerColor} tried to move on ${currentTurn}'s turn`);
         socket.emit("error", "Not your turn");
         return;
       }
