@@ -1,3 +1,5 @@
+// server.js
+
 require("dotenv").config();
 const express = require("express");
 const path = require("path");
@@ -5,7 +7,7 @@ const http = require("http");
 const { Server } = require("socket.io");
 const mongoose = require("mongoose");
 const cors = require("cors");
-const { Chess } = require('chess.js');
+const { Chess } = require("chess.js");
 
 // Initialize Express
 const app = express();
@@ -41,14 +43,17 @@ const GameSchema = new mongoose.Schema({
   whitePlayer: String,
   blackPlayer: String,
   players: { type: Number, default: 0 },
-  currentTurn: { type: String, default: 'white' }
+  currentTurn: { type: String, default: "white" },
+  playerHands: {
+    white: { type: Array, default: [] },
+    black: { type: Array, default: [] }
+  }
 });
 
 const Game = mongoose.model("Game", GameSchema);
 
 // ------------------------------
 // Auto-Match Endpoint: GET /match
-// If a waiting game exists, return it. Otherwise, create a new game.
 // ------------------------------
 app.get("/match", async (req, res) => {
   try {
@@ -58,6 +63,7 @@ app.get("/match", async (req, res) => {
       game.players = 2;
       game.blackPlayer = null; // Will be set via socket
       await game.save();
+      console.log(`Joining existing game ${game._id} with 2 players`);
       return res.json(game.toObject());
     }
 
@@ -67,8 +73,10 @@ app.get("/match", async (req, res) => {
       whitePlayer: null, // Will be set via socket
       blackPlayer: null,
       currentTurn: "white",
-      boardState: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+      boardState: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      playerHands: { white: [], black: [] }
     });
+    console.log(`Created new game ${game._id} with 1 player`);
     res.json(game.toObject());
   } catch (err) {
     console.error("Match error:", err);
@@ -85,6 +93,7 @@ app.get("/game/:id", async (req, res) => {
     if (!game) return res.status(404).json({ error: "Game not found" });
     res.json(game);
   } catch (err) {
+    console.error("Game fetch error:", err);
     res.status(500).json({ error: "Failed to get game" });
   }
 });
@@ -137,12 +146,18 @@ io.on("connection", (socket) => {
         message: `You are playing as ${color}`
       });
 
+      // When both players are present, start the game
       if (game.players === 2 && game.whitePlayer && game.blackPlayer) {
+        console.log(`Game ${gameId} starting - White: ${game.whitePlayer}, Black: ${game.blackPlayer}`);
         io.to(gameId).emit("match-start", {
           message: "Game starting!",
           gameId,
-          currentTurn: game.currentTurn,
-          boardState: game.boardState
+          currentTurn: "white",
+          fen: game.boardState
+        });
+      } else {
+        socket.emit("waiting", {
+          message: "Waiting for opponent..."
         });
       }
     } catch (err) {
@@ -168,28 +183,32 @@ io.on("connection", (socket) => {
         return;
       }
 
+      // Verify it's the player's turn
       const currentTurn = chess.turn() === "w" ? "white" : "black";
       if (socket.playerColor !== currentTurn) {
         socket.emit("error", "Not your turn");
         return;
       }
 
+      // Check if move is legal from previous state
       const prevChess = new Chess(game.boardState);
       const moves = prevChess.moves({ verbose: true });
-      const lastMove = moves.find(
-        (m) => m.from + m.to === fen.split(" ")[0].match(/([a-h][1-8]){2}/)?.[0]
-      );
-      if (!lastMove && !fen.includes("card")) {
+      const moveNotation = fen.split(" ")[0].match(/([a-h][1-8]){2}/)?.[0];
+      const lastMove = moves.find(m => m.from + m.to === moveNotation);
+      if (!lastMove && !fen.includes("card")) { // Allow card moves to bypass for now
+        console.error("Illegal move from previous state:", fen);
         socket.emit("error", "Illegal move");
         return;
       }
 
+      // Update game state
       game.boardState = fen;
-      game.currentTurn = currentTurn === "white" ? "black" : "white";
+      game.currentTurn = currentTurn === "white" ? "black" : "white"; // Switch turn
       await game.save();
 
       console.log(`Move accepted. New turn: ${game.currentTurn}, FEN: ${fen}`);
 
+      // Broadcast to all players in the room
       io.to(gameId).emit("update-board", {
         fen,
         currentTurn: game.currentTurn
@@ -212,9 +231,9 @@ io.on("connection", (socket) => {
             };
             if (game.whitePlayer === socket.id) update.whitePlayer = null;
             if (game.blackPlayer === socket.id) update.blackPlayer = null;
-            
+
             await Game.findByIdAndUpdate(room, update);
-            
+
             io.to(room).emit("opponent-disconnected", {
               message: "Opponent disconnected"
             });
@@ -227,5 +246,8 @@ io.on("connection", (socket) => {
   });
 });
 
+// ------------------------------
+// Start Server
+// ------------------------------
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));

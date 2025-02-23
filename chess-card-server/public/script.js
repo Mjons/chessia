@@ -1,3 +1,5 @@
+// script.js
+
 document.addEventListener("DOMContentLoaded", () => {
   // ------------------------------
   // Global Variables & Card Data
@@ -35,19 +37,17 @@ document.addEventListener("DOMContentLoaded", () => {
   // ------------------------------
   const joinButton = document.getElementById("join-button");
   joinButton.addEventListener("click", () => {
-    // Call the /match endpoint to auto-match players.
     fetch("http://147.182.134.57:3000/match")
       .then(response => response.json())
       .then(gameDoc => {
         gameId = gameDoc._id;
         localStorage.setItem("gameId", gameId);
-        // Display the room name at the top (if available)
         const roomNameEl = document.getElementById("room-name");
         if (roomNameEl) {
           roomNameEl.textContent = "Room: " + (gameDoc.gameCode || "AutoMatch");
         }
         loadGame();
-        joinButton.style.display = "none"; // Hide join button
+        joinButton.style.display = "none";
       })
       .catch(err => console.error("Error matching game:", err));
   });
@@ -59,15 +59,12 @@ document.addEventListener("DOMContentLoaded", () => {
     fetch(`http://147.182.134.57:3000/game/${gameId}`)
       .then(response => response.json())
       .then(data => {
-        // Set board state
         game.board.position(data.boardState);
-        // Set current player's hand
-        playerHand[myColor] = data.playerHands[myColor] || [];
+        playerHand[myColor] = data.playerHands?.[myColor] || [];
         game.updateCardDisplay();
       })
       .catch(err => console.error("Error loading game:", err));
 
-    // Join the socket room
     socket.emit("join-game", gameId);
   }
 
@@ -82,13 +79,37 @@ document.addEventListener("DOMContentLoaded", () => {
     socket.emit("move-piece", { gameId, fen });
   }
 
+  // ------------------------------
+  // Socket Event Listeners
+  // ------------------------------
+  socket.on("color-assignment", (data) => {
+    myColor = data.color;
+    localStorage.setItem("myColor", myColor);
+    game.showMessage(data.message);
+    console.log("Color assigned:", myColor);
+  });
+
+  socket.on("waiting", (data) => {
+    game.waitingForOpponent = true;
+    game.showMessage(data.message);
+  });
+
+  socket.on("match-start", (data) => {
+    console.log("Match start received:", data);
+    game.waitingForOpponent = false;
+    gameId = data.gameId;
+    localStorage.setItem("gameId", gameId);
+    game.chess.load(data.fen);
+    game.board.position(data.fen);
+    game.showMessage(data.message);
+    game.updateStatus(data.currentTurn);
+  });
+
   socket.on("update-board", ({ fen, currentTurn }) => {
-    console.log("Received board update - FEN:", fen, "Turn:", currentTurn);
-    
-    // Load the FEN into the chess instance
+    console.log("Board update - FEN:", fen, "Current Turn:", currentTurn);
     if (game.chess.load(fen)) {
       game.board.position(fen);
-      game.updateStatus();
+      game.updateStatus(currentTurn);
       if (currentTurn !== myColor) {
         game.showMessage("Opponent's turn!");
       } else {
@@ -105,27 +126,10 @@ document.addEventListener("DOMContentLoaded", () => {
     game.showMessage(message);
   });
 
-  socket.on("match-start", (data) => {
-    game.waitingForOpponent = false;
+  socket.on("opponent-disconnected", (data) => {
     game.showMessage(data.message);
-    // Ensure gameId is set
-    if (data.gameId && !gameId) {
-      gameId = data.gameId;
-    }
+    game.waitingForOpponent = true;
   });
-
-  // Add this to your socket event listeners
-socket.on("color-assignment", (data) => {
-  myColor = data.color;
-  localStorage.setItem("myColor", myColor);
-  game.showMessage(data.message);
-  console.log("Color assigned:", myColor);
-});
-
-socket.on("opponent-disconnected", (data) => {
-  game.showMessage(data.message);
-  game.waitingForOpponent = true;
-});
 
   // ------------------------------
   // Game Object (Client-Side)
@@ -146,7 +150,7 @@ socket.on("opponent-disconnected", (data) => {
     previousTurn: null,
     cardPlayedThisTurn: false,
     isSkippingTurn: false,
-    waitingForOpponent: true, // Initially disable moves until match starts
+    waitingForOpponent: true,
     newlyDrawnCards: {
       white: new Set(),
       black: new Set()
@@ -154,7 +158,7 @@ socket.on("opponent-disconnected", (data) => {
 
     init() {
       console.log("Initializing chessboard...");
-      console.log("Player color:", myColor);
+      console.log("My color on init:", myColor);
       this.board = Chessboard("board", {
         draggable: true,
         position: "start",
@@ -170,7 +174,6 @@ socket.on("opponent-disconnected", (data) => {
       this.updateTokens();
       this.updateCardDisplay();
 
-      // Hide opponent's cards; show only current player's hand
       if (myColor === "white") {
         document.getElementById("black-hand").style.display = "none";
         document.getElementById("white-hand").style.display = "block";
@@ -179,7 +182,6 @@ socket.on("opponent-disconnected", (data) => {
         document.getElementById("black-hand").style.display = "block";
       }
 
-      // Add click listeners for card actions on board squares
       const squares = document.querySelectorAll(".square-55d63");
       squares.forEach((square) => {
         square.addEventListener("click", (e) => {
@@ -195,7 +197,6 @@ socket.on("opponent-disconnected", (data) => {
         });
       });
 
-      // Add skip turn button
       const skipTurnBtn = document.createElement("button");
       skipTurnBtn.id = "skip-turn-btn";
       skipTurnBtn.className = "help-button";
@@ -210,7 +211,6 @@ socket.on("opponent-disconnected", (data) => {
       };
       document.querySelector(".container").appendChild(skipTurnBtn);
 
-      // Initialize help section
       const helpButton = document.createElement("button");
       helpButton.id = "toggle-help";
       helpButton.className = "help-button";
@@ -256,24 +256,14 @@ socket.on("opponent-disconnected", (data) => {
     onDragStart(source, piece) {
       if (this.cardMode) return false;
       if (this.chess.game_over()) return false;
-      
-      // Fix the turn validation
-      const currentTurn = this.chess.turn() === 'w' ? 'white' : 'black';
-      if (currentTurn !== myColor) {
-        this.showMessage("Not your turn!");
-        return false;
-      }
-
-      // Fix piece color validation
-      const pieceColor = piece.charAt(0);
-      if ((myColor === 'white' && pieceColor === 'b') ||
-          (myColor === 'black' && pieceColor === 'w')) {
-        this.showMessage("Can't move opponent's pieces!");
-        return false;
-      }
-
       if (this.waitingForOpponent) {
         this.showMessage("Waiting for opponent to join...");
+        return false;
+      }
+
+      const pieceColor = piece.charAt(0) === "w" ? "white" : "black";
+      if (pieceColor !== myColor) {
+        this.showMessage("Can't move opponent's pieces!");
         return false;
       }
 
@@ -281,12 +271,6 @@ socket.on("opponent-disconnected", (data) => {
     },
 
     onDrop(source, target) {
-      const currentTurn = this.chess.turn() === "w" ? "white" : "black";
-      if (currentTurn !== myColor) {
-        this.showMessage("Not your turn!");
-        return "snapback";
-      }
-
       const move = this.chess.move({
         from: source,
         to: target,
@@ -297,8 +281,7 @@ socket.on("opponent-disconnected", (data) => {
 
       const fen = this.chess.fen();
       sendMove(fen);
-      this.updateStatus(); // Update status locally but wait for server confirmation
-      return; // Do not update board here; wait for server
+      return;
     },
 
     drawCard(player) {
@@ -421,20 +404,12 @@ socket.on("opponent-disconnected", (data) => {
       } else {
         messageLog.appendChild(messageElement);
       }
-      const maxMessages = 5;
-      while (messageLog.children.length > maxMessages) {
+      while (messageLog.children.length > 5) {
         messageLog.removeChild(messageLog.lastChild);
       }
     },
 
     handleTeleportClick(event) {
-      // Fix the turn validation comparison
-      const currentTurn = this.chess.turn() === 'w' ? 'white' : 'black';
-      if (currentTurn !== myColor) {
-        this.showMessage("Not your turn!");
-        return;
-      }
-      
       const square = event.target.closest(".square-55d63");
       if (!square) return;
       const position = square.dataset.square;
@@ -456,14 +431,6 @@ socket.on("opponent-disconnected", (data) => {
           this.updateCardDisplay();
           this.cardPlayedThisTurn = true;
           this.resetCardMode();
-          const nextPlayer = this.cardPlayer === "white" ? "black" : "white";
-          const newFen = this.chess.fen().replace(/ w | b /, ` ${nextPlayer === "white" ? "w" : "b"} `);
-          this.chess.load(newFen);
-          this.board.position(this.chess.fen());
-          this.updateStatus();
-          this.lockBoard();
-          this.showMessage(`${this.cardPlayer}'s teleport complete. ${nextPlayer}'s turn.`);
-          sendMove(this.chess.fen());
         }
       }
     },
@@ -485,7 +452,7 @@ socket.on("opponent-disconnected", (data) => {
         return false;
       }
       const fenParts = this.chess.fen().split(" ");
-      fenParts[1] = player === "white" ? "b" : "w"; // Force turn switch
+      fenParts[1] = player === "white" ? "b" : "w"; // Switch turn
       const newFen = fenParts.join(" ");
       this.chess.load(newFen);
       document.getElementById("move-sound").play();
@@ -505,7 +472,6 @@ socket.on("opponent-disconnected", (data) => {
         this.showMessage("Not your turn!");
         return;
       }
-      
       const square = event.target.closest(".square-55d63");
       if (!square) return;
       const position = square.dataset.square;
@@ -528,7 +494,6 @@ socket.on("opponent-disconnected", (data) => {
         this.showMessage("Not your turn!");
         return;
       }
-      
       const square = event.target.closest(".square-55d63");
       if (!square) return;
       const position = square.dataset.square;
@@ -549,14 +514,6 @@ socket.on("opponent-disconnected", (data) => {
             this.updateCardDisplay();
             this.cardPlayedThisTurn = true;
             this.resetCardMode();
-            const nextPlayer = player === "white" ? "black" : "white";
-            const newFen = this.chess.fen().replace(/ w | b /, ` ${nextPlayer === "white" ? "w" : "b"} `);
-            this.chess.load(newFen);
-            this.board.position(this.chess.fen());
-            this.updateStatus();
-            this.lockBoard();
-            this.showMessage(`${player}'s Knight's Leap complete. ${nextPlayer}'s turn.`);
-            sendMove(this.chess.fen());
           }
         } else {
           this.showMessage(`${player} tried an invalid knight move to ${position}. Select a valid knight-move square.`);
@@ -567,7 +524,14 @@ socket.on("opponent-disconnected", (data) => {
 
     moveLikeKnight(player, source, target) {
       const piece = this.chess.get(source);
-      const originalTargetPiece = this.chess.get(target);
+      if (!piece) return false;
+      const targetPiece = this.chess.get(target);
+      const opponent = player === "white" ? "black" : "white";
+      if (targetPiece && this.protectedPiece === target && this.shieldActiveForPlayer === opponent) {
+        this.showMessage(`Knight's Leap blocked: ${opponent}'s piece at ${target} is shielded!`);
+        return false;
+      }
+      const originalTargetPiece = targetPiece;
       this.chess.remove(source);
       this.chess.put(piece, target);
       if (this.chess.in_check()) {
@@ -578,11 +542,15 @@ socket.on("opponent-disconnected", (data) => {
         return false;
       }
       const fenParts = this.chess.fen().split(" ");
-      fenParts[1] = player === "white" ? "b" : "w"; // Force turn switch
+      fenParts[1] = player === "white" ? "b" : "w"; // Switch turn
       const newFen = fenParts.join(" ");
       this.chess.load(newFen);
-      document.getElementById("move-sound").play();
-      this.showMessage(`${player} moved like a knight from ${source} to ${target}.`);
+      if (originalTargetPiece && originalTargetPiece.color !== piece.color) {
+        this.showMessage(`${player} captured ${originalTargetPiece.type} at ${target} with Knight's Leap!`);
+        document.getElementById("capture-sound").play();
+      } else {
+        document.getElementById("move-sound").play();
+      }
       sendMove(newFen);
       return true;
     },
@@ -595,13 +563,6 @@ socket.on("opponent-disconnected", (data) => {
     },
 
     handleSwapClick(event) {
-      // Fix the turn validation comparison
-      const currentTurn = this.chess.turn() === 'w' ? 'white' : 'black';
-      if (currentTurn !== myColor) {
-        this.showMessage("Not your turn!");
-        return;
-      }
-      
       const square = event.target.closest(".square-55d63");
       if (!square) return;
       const position = square.dataset.square;
@@ -621,41 +582,42 @@ socket.on("opponent-disconnected", (data) => {
           this.updateCardDisplay();
           this.cardPlayedThisTurn = true;
           this.resetCardMode();
-          const nextPlayer = this.cardPlayer === "white" ? "black" : "white";
-          const newFen = this.chess.fen().replace(/ w | b /, ` ${nextPlayer === "white" ? "w" : "b"} `);
-          this.chess.load(newFen);
-          this.board.position(this.chess.fen());
-          this.updateStatus();
-          this.lockBoard();
-          this.showMessage(`${this.cardPlayer}'s swap complete. ${nextPlayer}'s turn.`);
-          sendMove(this.chess.fen());
         }
       }
     },
 
     swapPieces(player, source, target) {
-      const originalPiece1 = this.chess.get(source);
-      const originalPiece2 = this.chess.get(target);
-      this.chess.remove(source);
-      this.chess.remove(target);
-      this.chess.put(originalPiece1, target);
-      this.chess.put(originalPiece2, source);
-      if (this.chess.in_check()) {
+      const piece1 = this.chess.get(source);
+      const piece2 = this.chess.get(target);
+      if (piece1 && piece2 && piece1.color === piece2.color) {
+        const originalPiece1 = piece1;
+        const originalPiece2 = piece2;
         this.chess.remove(source);
         this.chess.remove(target);
-        this.chess.put(originalPiece1, source);
-        this.chess.put(originalPiece2, target);
-        this.showMessage("Cannot swap pieces: would leave king in check!");
+        this.chess.put(originalPiece1, target);
+        this.chess.put(originalPiece2, source);
+        if (this.chess.in_check()) {
+          this.chess.remove(source);
+          this.chess.remove(target);
+          this.chess.put(originalPiece1, source);
+          this.chess.put(originalPiece2, target);
+          this.showMessage("Cannot swap pieces: would leave king in check!");
+          return false;
+        }
+        const fenParts = this.chess.fen().split(" ");
+        fenParts[1] = player === "white" ? "b" : "w"; // Switch turn
+        const newFen = fenParts.join(" ");
+        this.chess.load(newFen);
+        document.getElementById("move-sound").play();
+        this.showMessage(`${player} swapped ${piece1.type} at ${source} with ${piece2.type} at ${target}.`);
+        sendMove(newFen);
+        return true;
+      } else {
+        this.showMessage("Can only swap pieces of the same color!");
+        this.swapFirstPiece = null;
+        this.highlightPlayerPieces(player);
         return false;
       }
-      const fenParts = this.chess.fen().split(" ");
-      fenParts[1] = player === "white" ? "b" : "w"; // Force turn switch
-      const newFen = fenParts.join(" ");
-      this.chess.load(newFen);
-      document.getElementById("move-sound").play();
-      this.showMessage(`${player} swapped pieces at ${source} and ${target}.`);
-      sendMove(newFen);
-      return true;
     },
 
     applyShield(player, square) {
@@ -663,9 +625,7 @@ socket.on("opponent-disconnected", (data) => {
       if (piece && piece.color === (player === "white" ? "w" : "b")) {
         if (this.protectedPiece) {
           const oldSquare = document.querySelector(`.square-${this.protectedPiece}`);
-          if (oldSquare) {
-            oldSquare.classList.remove("shield-active");
-          }
+          if (oldSquare) oldSquare.classList.remove("shield-active");
         }
         this.protectedPiece = square;
         this.shieldActiveForPlayer = player;
@@ -673,17 +633,13 @@ socket.on("opponent-disconnected", (data) => {
         if (squareElement) {
           squareElement.classList.add("shield-active");
           squareElement.classList.add("shield-animation");
-          setTimeout(() => {
-            squareElement.classList.remove("shield-animation");
-          }, 1000);
+          setTimeout(() => squareElement.classList.remove("shield-animation"), 1000);
         }
         this.showMessage(`${player} protected piece at ${square} until their next turn begins.`);
         playerHand[this.pendingCard.player].splice(this.pendingCard.cardIndex, 1);
         this.updateCardDisplay();
         this.cardPlayedThisTurn = true;
         this.resetCardMode();
-        this.board.position(this.chess.fen());
-        this.updateStatus();
       }
     },
 
@@ -697,17 +653,9 @@ socket.on("opponent-disconnected", (data) => {
       return (dx === 2 && dy === 1) || (dx === 1 && dy === 2);
     },
 
-    advanceTurn() {
-      const currentTurn = this.chess.turn();
-      this.chess.load(this.chess.fen(), true);
-      this.chess.load(`${this.chess.fen().split(" ")[0]} ${currentTurn === "w" ? "b" : "w"} ${this.chess.fen().split(" ")[2]} ${this.chess.fen().split(" ")[3]} ${this.chess.fen().split(" ")[4]} ${parseInt(this.chess.fen().split(" ")[5]) + 1}`, true);
-    },
-
     lockBoard() {
       this.board.draggable = false;
-      setTimeout(() => {
-        this.board.draggable = true;
-      }, 100);
+      setTimeout(() => this.board.draggable = true, 100);
     },
 
     highlightPlayerPieces(player) {
@@ -720,11 +668,6 @@ socket.on("opponent-disconnected", (data) => {
           square.classList.remove("highlight");
         }
       });
-    },
-
-    highlightAllSquares() {
-      const squares = document.querySelectorAll(".square-55d63");
-      squares.forEach(square => square.classList.add("highlight"));
     },
 
     highlightKnightMoves(source) {
@@ -742,9 +685,7 @@ socket.on("opponent-disconnected", (data) => {
         if (targetX >= 0 && targetX < 8 && targetY >= 0 && targetY < 8) {
           const targetSquare = String.fromCharCode("a".charCodeAt(0) + targetX) + (targetY + 1);
           const squareElement = document.querySelector(`.square-${targetSquare}`);
-          if (squareElement) {
-            squareElement.classList.add("highlight");
-          }
+          if (squareElement) squareElement.classList.add("highlight");
         }
       });
     },
@@ -755,9 +696,7 @@ socket.on("opponent-disconnected", (data) => {
       this.selectedPiece = null;
       this.pendingCard = null;
       const squares = document.querySelectorAll(".square-55d63");
-      squares.forEach(square => {
-        square.classList.remove("highlight");
-      });
+      squares.forEach(square => square.classList.remove("highlight"));
       this.board.draggable = true;
       document.getElementById("cancel-card-action").style.display = "none";
     },
@@ -774,31 +713,29 @@ socket.on("opponent-disconnected", (data) => {
       }
     },
 
-    updateStatus() {
+    updateStatus(serverTurn = null) {
       let status = "";
+      const currentTurn = serverTurn || (this.chess.turn() === "w" ? "white" : "black");
       if (this.chess.in_checkmate()) {
-        status = `Checkmate! ${this.chess.turn() === "w" ? "Black" : "White"} wins!`;
+        status = `Checkmate! ${currentTurn === "white" ? "Black" : "White"} wins!`;
         this.showMessage(status);
       } else if (this.chess.in_stalemate()) {
         status = "Stalemate! Draw!";
         this.showMessage(status);
       } else {
-        const turn = this.chess.turn() === "w" ? "White" : "Black";
-        status = `${turn}'s turn${this.chess.in_check() ? " - Check!" : ""}`;
+        status = `${currentTurn === "white" ? "White" : "Black"}'s turn${this.chess.in_check() ? " - Check!" : ""}`;
         if (this.chess.in_check()) {
-          this.showMessage(`${turn} is in check!`);
+          this.showMessage(`${currentTurn === "white" ? "White" : "Black"} is in check!`);
         }
       }
       document.getElementById("status").textContent = status;
-      const currentTurn = this.chess.turn() === "w" ? "white" : "black";
+
       if (this.previousTurn !== currentTurn) {
         this.cardPlayedThisTurn = false;
-        if (this.shieldActiveForPlayer && this.shieldActiveForPlayer === currentTurn) {
+        if (this.shieldActiveForPlayer === currentTurn) {
           const squareElement = document.querySelector(`.square-${this.protectedPiece}`);
-          if (squareElement) {
-            squareElement.classList.remove("shield-active");
-          }
-          this.showMessage(`Shield deactivated for ${this.shieldActiveForPlayer} as their turn begins.`);
+          if (squareElement) squareElement.classList.remove("shield-active");
+          this.showMessage(`Shield deactivated for ${currentTurn}`);
           this.protectedPiece = null;
           this.shieldActiveForPlayer = null;
         }
@@ -833,20 +770,6 @@ socket.on("opponent-disconnected", (data) => {
         }
         handElement.appendChild(button);
       });
-    },
-
-    completeCardAction() {
-      if (this.pendingCard) {
-        playerHand[this.pendingCard.player].splice(this.pendingCard.cardIndex, 1);
-        this.updateCardDisplay();
-        this.cardPlayedThisTurn = true;
-        this.resetCardMode();
-        this.advanceTurn();
-        this.board.position(this.chess.fen());
-        this.updateStatus();
-        this.lockBoard();
-        sendMove(this.chess.fen());
-      }
     },
 
     highlightEmptySquares() {
@@ -914,12 +837,13 @@ socket.on("opponent-disconnected", (data) => {
       this.isSkippingTurn = true;
       this.drawCard(player);
       const nextPlayer = player === "white" ? "black" : "white";
-      this.chess.load(this.chess.fen().replace(/ w | b /, ` ${nextPlayer === "white" ? "w" : "b"} `));
+      const fenParts = this.chess.fen().split(" ");
+      fenParts[1] = nextPlayer === "white" ? "w" : "b";
+      const newFen = fenParts.join(" ");
+      this.chess.load(newFen);
       this.clearNewlyDrawnCards(nextPlayer);
-      this.board.position(this.chess.fen());
-      this.updateStatus();
+      sendMove(newFen);
       this.showMessage(`${player} skipped their turn and drew a card. ${nextPlayer}'s turn.`);
-      sendMove(this.chess.fen());
     },
 
     toggleCardHelp() {
@@ -929,24 +853,6 @@ socket.on("opponent-disconnected", (data) => {
 
     clearNewlyDrawnCards(player) {
       this.newlyDrawnCards[player].clear();
-    },
-
-    endCurrentTurn() {
-      const currentPlayer = this.cardPlayer;
-      const nextPlayer = currentPlayer === "white" ? "black" : "white";
-      this.chess.load(this.chess.fen().replace(/ w | b /, ` ${nextPlayer === "white" ? "w" : "b"} `));
-      this.clearNewlyDrawnCards(nextPlayer);
-      this.board.position(this.chess.fen());
-      playerHand[currentPlayer].splice(this.pendingCard.cardIndex, 1);
-      this.updateCardDisplay();
-      this.cardPlayedThisTurn = true;
-      this.resetCardMode();
-      const squares = document.querySelectorAll(".square-55d63");
-      squares.forEach(sq => sq.classList.remove("highlight"));
-      this.updateStatus();
-      this.lockBoard();
-      this.showMessage(`${nextPlayer}'s turn.`);
-      sendMove(this.chess.fen());
     }
   };
 
@@ -962,13 +868,7 @@ socket.on("opponent-disconnected", (data) => {
   if (storedGameId) {
     gameId = storedGameId;
     loadGame();
-    socket.emit("join-game", gameId);
   } else {
     console.log("Waiting for user to join a match via the join button...");
-  }
-
-  function updateHandDisplay(newHands) {
-    playerHand[myColor] = newHands[myColor];
-    game.updateCardDisplay();
   }
 });
