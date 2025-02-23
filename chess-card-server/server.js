@@ -108,6 +108,7 @@ io.on("connection", (socket) => {
       const clients = await io.in(gameId).allSockets();
       
       if (clients.size <= 2) {
+        // Assign color based on whether white player exists
         const color = !game.whitePlayer ? 'white' : 'black';
         socket.playerColor = color;
         
