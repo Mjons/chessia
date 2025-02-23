@@ -5,7 +5,9 @@ const http = require("http");
 const { Server } = require("socket.io");
 const mongoose = require("mongoose");
 const cors = require("cors");
-const Chess = require('chess.js').Chess;
+const { createRequire } = require('module');
+const require = createRequire(import.meta.url);
+const { Chess } = require('chess.js');
 
 // Initialize Express
 const app = express();
@@ -149,17 +151,25 @@ io.on("connection", (socket) => {
         return;
       }
 
-      // Create a new Chess instance
-      const chess = new Chess();
-      
-      // Load the FEN position
-      if (!chess.load(fen)) {
-        console.error("Invalid FEN:", fen);
+      // Create chess instance and validate move
+      let chess;
+      try {
+        chess = new Chess();
+        if (!chess.load(fen)) {
+          throw new Error("Invalid position");
+        }
+      } catch (err) {
+        console.error("Chess initialization error:", err);
         socket.emit("error", "Invalid move");
         return;
       }
 
-      // Determine the current turn based on FEN
+      // Log for debugging
+      console.log("Chess instance created successfully");
+      console.log("Current FEN:", chess.fen());
+      console.log("Current turn:", chess.turn());
+
+      // Determine the current turn
       const currentTurn = chess.turn() === 'w' ? 'white' : 'black';
       
       // Verify it's the player's turn
@@ -171,10 +181,10 @@ io.on("connection", (socket) => {
 
       // Update game state
       game.boardState = fen;
-      game.currentTurn = chess.turn() === 'w' ? 'black' : 'white';  // Switch turn
+      game.currentTurn = chess.turn() === 'w' ? 'black' : 'white';
       await game.save();
 
-      // Broadcast the updated state to all players
+      // Broadcast the updated state
       io.to(gameId).emit("update-board", {
         fen: fen,
         currentTurn: game.currentTurn
