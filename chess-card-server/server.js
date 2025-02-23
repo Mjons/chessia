@@ -65,7 +65,10 @@ app.get("/match", async (req, res) => {
       }
     }
 
-    const newGame = await Game.create({ players: 1 });
+    const newGame = await Game.create({ 
+      players: 1,
+      currentTurn: 'white'
+    });
     waitingGame = newGame._id;
     res.json(newGame.toObject());
   } catch (err) {
@@ -104,12 +107,10 @@ io.on("connection", (socket) => {
       socket.join(gameId);
       const clients = await io.in(gameId).allSockets();
       
-      // Assign color
       if (clients.size <= 2) {
         const color = !game.whitePlayer ? 'white' : 'black';
         socket.playerColor = color;
         
-        // Update game with player's color
         const update = {};
         if (color === 'white') {
           update.whitePlayer = socket.id;
@@ -118,10 +119,105 @@ io.on("connection", (socket) => {
         }
         
         await Game.findByIdAndUpdate(gameId, update);
-
+        
         console.log(`Player ${socket.id} assigned color: ${color}`);
+        
+        socket.data = { color: color, gameId: gameId };
 
-        // Send color to client
         socket.emit("color-assignment", {
           color,
           message: `You are playing as ${color}`
+        });
+
+        if (clients.size === 2) {
+          console.log(`Game ${gameId} starting with white: ${game.whitePlayer}, black: ${game.blackPlayer}`);
+          io.to(gameId).emit("match-start", {
+            message: "Game starting!",
+            gameId,
+            currentTurn: 'white'
+          });
+        }
+      }
+    } catch (err) {
+      console.error("Join error:", err);
+      socket.emit("error", "Failed to join game");
+    }
+  });
+
+  socket.on("move-piece", async ({ gameId, fen }) => {
+    try {
+      const game = await Game.findById(gameId);
+      if (!game) {
+        socket.emit("error", "Game not found");
+        return;
+      }
+
+      let chess;
+      try {
+        chess = new Chess();
+        if (!chess.load(fen)) {
+          throw new Error("Invalid position");
+        }
+      } catch (err) {
+        console.error("Chess initialization error:", err);
+        socket.emit("error", "Invalid move");
+        return;
+      }
+
+      console.log("Chess instance created successfully");
+      console.log("Current FEN:", chess.fen());
+      console.log("Current turn:", chess.turn());
+
+      const currentTurn = chess.turn() === 'w' ? 'white' : 'black';
+      
+      if (socket.playerColor !== currentTurn) {
+        console.log(`Invalid turn: ${socket.playerColor} tried to move on ${currentTurn}'s turn`);
+        socket.emit("error", "Not your turn");
+        return;
+      }
+
+      game.boardState = fen;
+      game.currentTurn = chess.turn() === 'w' ? 'black' : 'white';
+      await game.save();
+
+      io.to(gameId).emit("update-board", {
+        fen: fen,
+        currentTurn: game.currentTurn
+      });
+
+      console.log(`Move made by ${socket.playerColor}, next turn: ${game.currentTurn}`);
+
+    } catch (err) {
+      console.error("Move error:", err);
+      socket.emit("error", "Invalid move");
+    }
+  });
+
+  socket.on("disconnecting", async () => {
+    try {
+      for (const room of socket.rooms) {
+        if (room !== socket.id) {
+          const game = await Game.findById(room);
+          if (game) {
+            const update = {
+              players: game.players - 1
+            };
+            if (game.whitePlayer === socket.id) update.whitePlayer = null;
+            if (game.blackPlayer === socket.id) update.blackPlayer = null;
+            
+            await Game.findByIdAndUpdate(room, update);
+            
+            io.to(room).emit("opponent-disconnected", {
+              message: "Opponent disconnected"
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Disconnect error:", err);
+    }
+  });
+});
+
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
