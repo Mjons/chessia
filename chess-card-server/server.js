@@ -5,8 +5,6 @@ const http = require("http");
 const { Server } = require("socket.io");
 const mongoose = require("mongoose");
 const cors = require("cors");
-const { createRequire } = require('module');
-const require = createRequire(import.meta.url);
 const { Chess } = require('chess.js');
 
 // Initialize Express
@@ -127,97 +125,3 @@ io.on("connection", (socket) => {
         socket.emit("color-assignment", {
           color,
           message: `You are playing as ${color}`
-        });
-
-        if (clients.size === 2) {
-          console.log(`Game ${gameId} starting with white: ${game.whitePlayer}, black: ${game.blackPlayer}`);
-          io.to(gameId).emit("match-start", {
-            message: "Game starting!",
-            gameId
-          });
-        }
-      }
-    } catch (err) {
-      console.error("Join error:", err);
-      socket.emit("error", "Failed to join game");
-    }
-  });
-
-  socket.on("move-piece", async ({ gameId, fen }) => {
-    try {
-      const game = await Game.findById(gameId);
-      if (!game) {
-        socket.emit("error", "Game not found");
-        return;
-      }
-
-      // Create chess instance and validate move
-      let chess;
-      try {
-        chess = new Chess();
-        if (!chess.load(fen)) {
-          throw new Error("Invalid position");
-        }
-      } catch (err) {
-        console.error("Chess initialization error:", err);
-        socket.emit("error", "Invalid move");
-        return;
-      }
-
-      // Log for debugging
-      console.log("Chess instance created successfully");
-      console.log("Current FEN:", chess.fen());
-      console.log("Current turn:", chess.turn());
-
-      // Determine the current turn
-      const currentTurn = chess.turn() === 'w' ? 'white' : 'black';
-      
-      // Verify it's the player's turn
-      if (socket.playerColor !== currentTurn) {
-        console.log(`Invalid turn: ${socket.playerColor} tried to move on ${currentTurn}'s turn`);
-        socket.emit("error", "Not your turn");
-        return;
-      }
-
-      // Update game state
-      game.boardState = fen;
-      game.currentTurn = chess.turn() === 'w' ? 'black' : 'white';
-      await game.save();
-
-      // Broadcast the updated state
-      io.to(gameId).emit("update-board", {
-        fen: fen,
-        currentTurn: game.currentTurn
-      });
-
-      console.log(`Move made by ${socket.playerColor}, next turn: ${game.currentTurn}`);
-
-    } catch (err) {
-      console.error("Move error:", err);
-      socket.emit("error", "Invalid move");
-    }
-  });
-
-  socket.on("disconnecting", async () => {
-    for (const room of socket.rooms) {
-      if (room !== socket.id) {
-        io.to(room).emit("opponent-disconnected", {
-          message: "Opponent disconnected"
-        });
-      }
-    }
-  });
-});
-
-// ------------------------------
-// Health Check
-// ------------------------------
-app.get("/", (req, res) => {
-  res.send("✅ Chess server up!");
-});
-
-// ------------------------------
-// Start Server
-// ------------------------------
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
